@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+title: "PFM-NSI"
+message: "If you use this software, please cite the preprint linked below."
+authors:
+  - family-names: "Lynch"
+    given-names: "Charles"
+license: MIT
+version: 0.1.0
+date-released: 2026-02-24
+url: "https://www.biorxiv.org/content/10.64898/2026.02.10.704857v1"

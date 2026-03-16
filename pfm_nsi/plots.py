@@ -22,6 +22,10 @@ def _local_predict_binom_logit(mdl: Dict[str, Any], nsi: np.ndarray) -> np.ndarr
     return p.reshape(np.shape(nsi))
 
 
+def _expert_judgement_j() -> Dict[str, float]:
+    return {"min": 0.39, "mean": 0.43, "max": 0.488}
+
+
 def pfm_nsi_plots(
     qc: Dict[str, Any],
     usability_mdl: Optional[Dict[str, Any]] = None,
@@ -78,6 +82,7 @@ def pfm_nsi_plots(
             "ci95": [ci_lo, ci_hi],
             "decision": label,
             "thresholds": usability_mdl["thresholds"],
+            "expert_judgement_j": _expert_judgement_j(),
         }
 
         print("\n=== Prospective PFM usability projection ===\n")
@@ -87,12 +92,11 @@ def pfm_nsi_plots(
         print(f"  P(PFM-usable | NSI):         {p_hat:.2f}")
         print(f"  95% confidence interval:     [{ci_lo:.2f}, {ci_hi:.2f}]")
         print(f"  Decision band:               {label}\n")
-        print("Model reference thresholds (for context only)")
-        for p, n in zip(
-            np.asarray(usability_mdl["thresholds"]["P"]).ravel(),
-            np.asarray(usability_mdl["thresholds"]["NSI"]).ravel(),
-        ):
-            print(f"  NSI corresponding to P={p:.1f}:  ~{n:.2f}")
+        j = _expert_judgement_j()
+        print("Expert-judgement J thresholds")
+        print(f"  min J:                        {j['min']:.3f}")
+        print(f"  mean J:                       {j['mean']:.3f}")
+        print(f"  max J:                        {j['max']:.3f}")
         print("\n===========================================\n")
 
         if show_plots:
@@ -480,9 +484,10 @@ def _plot_nsi_usability_curve_from_model(mdl: Dict[str, Any], point_nsi: float, 
     ax.plot(xgrid, p_hat, "k-", linewidth=1.8)
     ax.scatter([point_nsi], [point_p], s=45, c="k")
 
-    for x0 in np.asarray(mdl["thresholds"]["NSI"]).ravel():
-        if not np.isnan(x0):
-            ax.axvline(x0, color="k", linestyle="--", linewidth=1)
+    j = _expert_judgement_j()
+    ax.axvline(j["min"], color=(0.55, 0.55, 0.55), linestyle="-", linewidth=1.0, alpha=0.6)
+    ax.axvline(j["max"], color=(0.55, 0.55, 0.55), linestyle="-", linewidth=1.0, alpha=0.6)
+    ax.axvline(j["mean"], color="k", linestyle="-", linewidth=1.8, alpha=0.7)
 
     ax.tick_params(direction="out")
     ax.spines["top"].set_visible(False)

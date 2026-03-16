@@ -280,7 +280,6 @@ if opts.compute_network_histograms
     summary = struct('network_index',{},'network_label',{},'n_targets',{},'median_nsi',{},'mean_nsi',{});
     nsiVals = Output.NSI.Ridge.(netTag).R2(:);
     for k = 1:nNet
-        labels{k} = sprintf('Network %02d', k);
         vals = nsiVals(netIdx(:)==k);
         vals = vals(isfinite(vals));
         summary(k).network_index = k;
@@ -529,15 +528,6 @@ if nargin < 3 || isempty(thr)
     thr = 0.5;
 end
 
-function out = collapse_lr_label(in)
-out = char(in);
-if endsWith(out, '_LEFT')
-    out = out(1:end-5);
-elseif endsWith(out, '_RIGHT')
-    out = out(1:end-6);
-end
-end
-
 if isnumeric(roi_source) || islogical(roi_source)
     vals = roi_source(:);
 elseif ischar(roi_source) || isstring(roi_source)
@@ -571,5 +561,14 @@ SparseIdx = round(SparseIdx);
 SparseIdx = unique(SparseIdx(SparseIdx>=1 & SparseIdx<=nGray));
 if isempty(SparseIdx)
     error('BinaryROI did not contain any valid target indices.');
+end
+end
+
+function out = collapse_lr_label(in)
+out = char(in);
+if endsWith(out, '_LEFT')
+    out = out(1:end-5);
+elseif endsWith(out, '_RIGHT')
+    out = out(1:end-6);
 end
 end

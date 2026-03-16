@@ -68,7 +68,7 @@ PlotSummary = pfm_nsi_plots(QcPfm, UsabilityMdl, ...
 
 paths = struct();
 paths.nsi_mat = fullfile(outDir, [prefix '_nsi.mat']);
-save(paths.nsi_mat, 'QcPfm', 'Maps', '-v7');
+save(paths.nsi_mat, 'QcPfm', 'Maps', '-v7.3');
 
 nsiSummary = local_nsi_summary(QcPfm);
 paths.nsi_json = fullfile(outDir, [prefix '_nsi.json']);
@@ -107,7 +107,7 @@ if args.Reliability
         'Verbose', args.Verbose, ...
         'Plot', args.SaveFigs);
     paths.reliability_mat = fullfile(outDir, [prefix '_reliability.mat']);
-    save(paths.reliability_mat, 'ReliabilityOut', '-v7');
+    save(paths.reliability_mat, 'ReliabilityOut', '-v7.3');
     paths.reliability_json = fullfile(outDir, [prefix '_reliability.json']);
     local_write_json(paths.reliability_json, ReliabilityOut);
     if args.SaveFigs && ishghandle(gcf)
@@ -269,10 +269,10 @@ end
 
 function out = local_json_safe(in)
 if isstruct(in)
-    out = in;
-    f = fieldnames(in);
-    for i = 1:numel(f)
-        out.(f{i}) = local_json_safe(in.(f{i}));
+    if numel(in) > 1
+        out = arrayfun(@local_json_safe_scalar, in, 'UniformOutput', false);
+    else
+        out = local_json_safe_scalar(in);
     end
 elseif iscell(in)
     out = cellfun(@local_json_safe, in, 'UniformOutput', false);
@@ -281,6 +281,14 @@ elseif isnumeric(in) || islogical(in)
     out(~isfinite(out)) = NaN;
 else
     out = in;
+end
+end
+
+function out = local_json_safe_scalar(in)
+out = struct();
+f = fieldnames(in);
+for i = 1:numel(f)
+    out.(f{i}) = local_json_safe(in.(f{i}));
 end
 end
 

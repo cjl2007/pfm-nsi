@@ -64,6 +64,7 @@ if local_has_usability_model(UsabilityMdl)
     OUT.usability.ci95 = [p_lo p_hi];
     OUT.usability.decision = label;
     OUT.usability.thresholds = UsabilityMdl.thresholds;
+    OUT.usability.expert_judgement_j = local_expert_judgement_j();
 
     fprintf('\n=== Prospective PFM usability projection ===\n\n');
     fprintf('Dataset summary\n');
@@ -72,11 +73,11 @@ if local_has_usability_model(UsabilityMdl)
     fprintf('  P(PFM-usable | NSI):         %.2f\n', p_hat);
     fprintf('  95%% confidence interval:     [%.2f, %.2f]\n', p_lo, p_hi);
     fprintf('  Decision band:               %s\n\n', label);
-    fprintf('Model reference thresholds (for context only)\n');
-    for i = 1:numel(UsabilityMdl.thresholds.P)
-        fprintf('  NSI corresponding to P=%.1f:  ~%.2f\n', ...
-            UsabilityMdl.thresholds.P(i), UsabilityMdl.thresholds.NSI(i));
-    end
+    J = local_expert_judgement_j();
+    fprintf('Expert-judgement J thresholds\n');
+    fprintf('  min J:                        %.3f\n', J.min);
+    fprintf('  mean J:                       %.3f\n', J.mean);
+    fprintf('  max J:                        %.3f\n', J.max);
     fprintf('\n===========================================\n\n');
 
     if doPlot
@@ -154,6 +155,10 @@ tf = isstruct(UsabilityMdl) && isfield(UsabilityMdl, 'model') && ...
     isfield(UsabilityMdl, 'grid') && isfield(UsabilityMdl, 'thresholds');
 end
 
+function J = local_expert_judgement_j()
+J = struct('min', 0.39, 'mean', 0.43, 'max', 0.488);
+end
+
 function out = local_field_or_empty(S, parts)
 out = [];
 for i = 1:numel(parts)
@@ -229,9 +234,8 @@ nNet = numel(labels);
 nRows = 10;
 nCols = max(2, ceil(nNet / nRows));
 h = figure('Color','w','Units','inches','Position',[1 1 max(8.8,4.4*nCols) 11.5]);
-tiledlayout(nRows, nCols, 'Padding', 'compact', 'TileSpacing', 'compact');
 for k = 1:nNet
-    nexttile;
+    local_select_tile(nRows, nCols, k);
     vals = nsi(netIdx == k);
     vals = vals(isfinite(vals));
     if ~isempty(vals)
@@ -248,7 +252,7 @@ for k = 1:nNet
     set(gca, 'TickDir', 'out', 'Box', 'off', 'FontName', 'Arial', 'FontSize', 9);
 end
 for kk = (nNet+1):(nRows*nCols)
-    nexttile;
+    local_select_tile(nRows, nCols, kk);
     axis off;
 end
 xlabel('NSI (R^2)');
@@ -266,9 +270,8 @@ gray = linspace(0.25, 0.75, max(nStruct, 2));
 nRows = 10;
 nCols = max(2, ceil(nStruct / nRows));
 h = figure('Color','w','Units','inches','Position',[1 1 max(8.8,4.4*nCols) 11.5]);
-tiledlayout(nRows, nCols, 'Padding', 'compact', 'TileSpacing', 'compact');
 for k = 1:nStruct
-    nexttile;
+    local_select_tile(nRows, nCols, k);
     mask = strcmp(labelsByTarget, uniq{k});
     vals = nsi(mask);
     vals = vals(isfinite(vals));
@@ -287,10 +290,14 @@ for k = 1:nStruct
     set(gca, 'TickDir', 'out', 'Box', 'off', 'FontName', 'Arial', 'FontSize', 9);
 end
 for kk = (nStruct+1):(nRows*nCols)
-    nexttile;
+    local_select_tile(nRows, nCols, kk);
     axis off;
 end
 xlabel('NSI (R^2)');
+end
+
+function local_select_tile(nRows, nCols, idx)
+subplot(nRows, nCols, idx);
 end
 
 function xlims = local_finite_x_limits(vals)
@@ -384,17 +391,15 @@ for b = 1:size(bands,1)
         'EdgeColor', 'none', 'FaceAlpha', 0.08);
 end
 
+J = local_expert_judgement_j();
+line(ax, [J.min J.min], [0 1], 'Color', [0.55 0.55 0.55], 'LineStyle', '-', 'LineWidth', 1.0);
+line(ax, [J.max J.max], [0 1], 'Color', [0.55 0.55 0.55], 'LineStyle', '-', 'LineWidth', 1.0);
+line(ax, [J.mean J.mean], [0 1], 'Color', [0 0 0], 'LineStyle', '-', 'LineWidth', 1.8);
+
 patch(ax, [xgrid; flipud(xgrid)], [ciLo; flipud(ciHi)], ...
     [0.8 0.8 0.8], 'EdgeColor', 'none', 'FaceAlpha', 0.35);
 plot(ax, xgrid, pHat, 'k-', 'LineWidth', 1.8);
 scatter(ax, pointNSI, pointP, 45, 'k', 'filled');
-
-for i = 1:numel(UsabilityMdl.thresholds.P)
-    x0 = UsabilityMdl.thresholds.NSI(i);
-    if ~isnan(x0)
-        xline(ax, x0, 'k--', 'LineWidth', 1);
-    end
-end
 hold(ax,'off');
 h.fig = fig;
 h.ax = ax;

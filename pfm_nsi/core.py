@@ -137,6 +137,18 @@ def _mat_struct_get_opt(mat_struct: Any, field: str) -> Any:
         return None
 
 
+def _normalize_network_labels(labels: Any) -> Optional[List[str]]:
+    if labels is None:
+        return None
+    arr = np.asarray(labels, dtype=object).ravel()
+    out: List[str] = []
+    for item in arr:
+        while isinstance(item, np.ndarray) and item.size == 1:
+            item = item.reshape(-1)[0]
+        out.append(str(np.asarray(item).squeeze()) if isinstance(item, np.ndarray) else str(item))
+    return out
+
+
 def _load_priors(priors: Union[str, Dict[str, Any], np.ndarray]) -> Dict[str, Any]:
     if isinstance(priors, str):
         if priors.endswith(".npz"):
@@ -144,7 +156,7 @@ def _load_priors(priors: Union[str, Dict[str, Any], np.ndarray]) -> Dict[str, An
             return {
                 "FC": np.asarray(z["FC"]),
                 "Alt": np.asarray(z["Alt_FC"]) if "Alt_FC" in z else None,
-                "NetworkLabels": np.asarray(z["NetworkLabels"]).ravel().tolist() if "NetworkLabels" in z else None,
+                "NetworkLabels": _normalize_network_labels(z["NetworkLabels"]) if "NetworkLabels" in z else None,
                 "NetworkColors": np.asarray(z["NetworkColors"], dtype=float) if "NetworkColors" in z else None,
             }
         pri = sio.loadmat(priors)
@@ -156,7 +168,7 @@ def _load_priors(priors: Union[str, Dict[str, Any], np.ndarray]) -> Dict[str, An
     return {
         "FC": _mat_struct_get(pri, "FC"),
         "Alt": _mat_struct_get(pri, "Alt") if hasattr(pri, "dtype") and pri.dtype.names and "Alt" in pri.dtype.names else None,
-        "NetworkLabels": _mat_struct_get_opt(pri, "NetworkLabels"),
+        "NetworkLabels": _normalize_network_labels(_mat_struct_get_opt(pri, "NetworkLabels")),
         "NetworkColors": _mat_struct_get_opt(pri, "NetworkColors"),
     }
 

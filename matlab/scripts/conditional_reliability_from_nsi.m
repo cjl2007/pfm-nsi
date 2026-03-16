@@ -22,7 +22,7 @@ function OUT = conditional_reliability_from_nsi(QcPFM, NSI_reliability_model, va
 %         - Uses pre-trained logistic models stored inside NSI_reliability_model.
 %
 % INPUTS
-%   QcPFM : struct output of pfm_qc (or compatible) containing NSI summary.
+%   QcPFM : struct output of pfm_nsi_core / pfm_nsi containing NSI summary.
 %           This function expects:
 %             QcPFM.NSI.MedianScore
 %
@@ -516,4 +516,3 @@ catch
 end
 
 end
-

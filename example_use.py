@@ -29,7 +29,7 @@ def load_usability_model(path: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Python ExampleUse for PFM-QC")
+    parser = argparse.ArgumentParser(description="Python ExampleUse for PFM-NSI")
     parser.add_argument("--cifti", default="ME01/Data.dtseries.nii")
     parser.add_argument("--priors", default="pfm_nsi/models/priors.npz")
     parser.add_argument("--usability", default="pfm_nsi/models/nsi_usability_model.json.gz")
@@ -39,7 +39,7 @@ def main():
     parser.add_argument("--structure-hists", action="store_true", help="Advanced: render per-structure NSI histograms")
     parser.add_argument("--no-plots", action="store_true")
     parser.add_argument("--save-dir", default=None, help="Directory to save figures (png)")
-    parser.add_argument("--prefix", default="pfm_qc", help="Filename prefix for saved figures")
+    parser.add_argument("--prefix", default="pfm_nsi", help="Filename prefix for saved figures")
     args = parser.parse_args()
     if args.save_dir:
         os.makedirs(args.save_dir, exist_ok=True)

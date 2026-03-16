@@ -114,7 +114,7 @@ opts["SparseIdxOverrideBypassStructures"] = True
 addpath('/path/to/pfm-nsi/matlab/scripts');
 addpath(genpath('/path/to/MSCcodebase/Utilities/read_write_cifti'));
 
-load('/path/to/pfm-nsi/matlab/models/Priors.mat');
+load('/path/to/pfm-nsi/matlab/models/priors.mat');
 C = ft_read_cifti_mod('/path/to/Data.dtseries.nii');
 
 opts = struct;
@@ -125,8 +125,10 @@ opts.compute_network_histograms = true;
 opts.network_assignment_lambda = 10;
 
 Structures = {'CORTEX_LEFT','CORTEX_RIGHT'};
-[QcPfm, Maps] = pfm_qc(C, Structures, Priors, opts);
-OUT = pfm_qc_plots(QcPfm);
+OUT = pfm_nsi(C, ...
+    'Priors', Priors, ...
+    'Structures', Structures, ...
+    'Opts', opts);
 ```
 
 MATLAB ROI override:

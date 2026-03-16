@@ -252,19 +252,6 @@ def plot_nsi_usability_distribution(
         fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
     return out
 
-
-def pfm_qc_plots(
-    qc: Dict[str, Any],
-    usability_mdl: Optional[Dict[str, Any]] = None,
-    show_plots: bool = True,
-    save_dir: Optional[str] = None,
-    prefix: str = "pfm_nsi",
-    dpi: int = 150,
-) -> Dict[str, Any]:
-    """Backward-compatible alias for pfm_nsi_plots."""
-    return pfm_nsi_plots(qc, usability_mdl, show_plots, save_dir, prefix, dpi)
-
-
 def _plot_network_nsi_histograms(
     nsi_vals: np.ndarray,
     net_idx: np.ndarray,

@@ -1,18 +1,19 @@
-# MATLAB Implementation (PFM-NSI Fallback)
+# MATLAB Implementation (PFM-NSI)
 
-This folder provides the MATLAB fallback aligned to the Python CLI/API.
+This folder provides a MATLAB entrypoint aligned to the Python CLI/API.
 
 ## Contents
 
-- `scripts/pfm_qc.m`
-- `scripts/pfm_qc_plots.m`
+- `scripts/pfm_nsi.m`
+- `scripts/pfm_nsi_plots.m`
+- `scripts/pfm_nsi_core.m`
 - `scripts/conditional_reliability_from_nsi.m`
 - `scripts/local_predict_binom_logit.m`
-- `models/Priors.mat`
-- `models/NSI_usability_model.mat`
-- `models/NSI_reliability_model.mat`
-- `models/Cifti_surf_neighbors_LR_normalwall.mat`
-- `examples/ExampleUse.m`
+- `models/priors.mat`
+- `models/nsi_usability_model.mat`
+- `models/nsi_reliability_model.mat`
+- `models/cifti_surf_neighbors_lr_normalwall.mat`
+- `examples/example_use.m`
 
 ## Requirements
 
@@ -31,7 +32,7 @@ addpath(genpath('/path/to/MSCcodebase/Utilities/read_write_cifti'));
 ## Basic Usage
 
 ```matlab
-load(fullfile(repo_root, 'matlab', 'models', 'Priors.mat'));
+load(fullfile(repo_root, 'matlab', 'models', 'priors.mat'));
 C = ft_read_cifti_mod('/path/to/Data.dtseries.nii');
 
 opts = struct;
@@ -40,9 +41,22 @@ opts.compute_morans = false;
 opts.compute_slope = false;
 
 Structures = {'CORTEX_LEFT','CORTEX_RIGHT'};
-[QcPfm, Maps] = pfm_qc(C, Structures, Priors, opts);
-OUT = pfm_qc_plots(QcPfm);
+OUT = pfm_nsi(C, ...
+    'Priors', Priors, ...
+    'Structures', Structures, ...
+    'Opts', opts, ...
+    'OutDir', fullfile(repo_root, 'pfm_nsi_out'), ...
+    'Prefix', 'pfm_nsi');
 ```
+
+This writes MATLAB outputs with Python-style basenames such as:
+
+- `pfm_nsi_nsi.mat`
+- `pfm_nsi_nsi.json`
+- `pfm_nsi_hist_nsi.png`
+- `pfm_nsi_hist_moransI.png`
+- `pfm_nsi_hist_slope.png`
+- `pfm_nsi_power_spectra.png`
 
 ## Advanced Options
 
@@ -74,6 +88,26 @@ Structure histograms use `QcPfm.NSI.StructureAssignment.Lambda10` with:
 - `StructureLabelsUnique`
 - `Summary` (`n_targets`, `median_nsi`, `mean_nsi` per structure)
 
+Usability and reliability projections are opt-in, like Python:
+
+```matlab
+OUT = pfm_nsi('/path/to/Data.dtseries.nii', ...
+    'Usability', true, ...
+    'Reliability', true, ...
+    'NSI_T', 10, ...
+    'QueryT', [30 45 60], ...
+    'OutDir', 'pfm_nsi_out', ...
+    'Prefix', 'pfm_nsi');
+```
+
+This additionally writes:
+
+- `pfm_nsi_usability_curve.png`
+- `pfm_nsi_usability.json`
+- `pfm_nsi_reliability.mat`
+- `pfm_nsi_reliability.json`
+- `pfm_nsi_reliability_prob.png`
+
 ## Alignment Notes (Python vs MATLAB)
 
 Core fields are aligned:
@@ -86,4 +120,4 @@ Core fields are aligned:
 - `MoransI.mI`
 - `SpectralSlope.slope`
 
-File formats differ (`.mat` vs `.npz/.json`), but metric definitions are matched.
+`pfm_nsi.m` is the user-facing MATLAB entrypoint. `pfm_nsi_core.m` is the internal metric engine used underneath it.

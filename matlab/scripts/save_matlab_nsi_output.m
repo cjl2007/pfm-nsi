@@ -1,8 +1,8 @@
-function save_matlab_qc_output(cifti_path, out_dir)
-% Run MATLAB pfm_qc and save outputs for Python comparison.
+function save_matlab_nsi_output(cifti_path, out_dir)
+% Run MATLAB pfm_nsi_core and save outputs for Python comparison.
 %
 % Example:
-%   save_matlab_qc_output('/path/to/Data.dtseries.nii', '/tmp/pfm_nsi_out')
+%   save_matlab_nsi_output('/path/to/Data.dtseries.nii', '/tmp/pfm_nsi_out')
 
 if nargin < 1 || isempty(cifti_path)
     cifti_path = fullfile(pwd, 'ME01', 'Data.dtseries.nii');
@@ -17,7 +17,7 @@ end
 here = fileparts(mfilename('fullpath'));
 model_dir = fullfile(here, '..', 'models');
 
-load(fullfile(model_dir, 'Priors.mat'));
+load(fullfile(model_dir, 'priors.mat'));
 C = ft_read_cifti_mod(cifti_path);
 
 opts = struct;
@@ -35,7 +35,7 @@ Structures = { ...
     'PALLIDUM_RIGHT',   'PUTAMEN_RIGHT',   'THALAMUS_RIGHT', ...
     'HIPPOCAMPUS_RIGHT','AMYGDALA_RIGHT'};
 
-[QcPfm, Maps] = pfm_qc(C, Structures, Priors, opts);
+[QcPfm, Maps] = pfm_nsi_core(C, Structures, Priors, opts);
 
 out_path = fullfile(out_dir, 'QcPfm_matlab.mat');
 save(out_path, 'QcPfm', 'Maps', '-v7');

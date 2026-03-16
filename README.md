@@ -66,8 +66,9 @@ See [matlab/README.md](matlab/README.md) for setup and examples.
 
 Core entry points:
 
-- `matlab/scripts/pfm_qc.m`
-- `matlab/scripts/pfm_qc_plots.m`
+- `matlab/scripts/pfm_nsi.m`
+- `matlab/scripts/pfm_nsi_core.m`
+- `matlab/scripts/pfm_nsi_plots.m`
 - `matlab/scripts/conditional_reliability_from_nsi.m`
 
 ## Documentation

@@ -747,17 +747,6 @@ def pfm_nsi(
         Maps["FC"] = fc_map
     return Output, Maps
 
-
-def pfm_qc(
-    C: Union[str, Dict[str, Any]],
-    Structures: Sequence[str],
-    Priors: Union[str, Dict[str, Any], np.ndarray],
-    opts: Optional[Dict[str, Any]] = None,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Backward-compatible alias for pfm_nsi."""
-    return pfm_nsi(C, Structures, Priors, opts)
-
-
 if __name__ == "__main__":
     # Minimal smoke test using example data (NSI only to save time)
     priors = _default_asset_path("priors.npz")

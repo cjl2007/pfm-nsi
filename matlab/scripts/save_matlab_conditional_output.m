@@ -17,8 +17,8 @@ end
 here = fileparts(mfilename('fullpath'));
 model_dir = fullfile(here, '..', 'models');
 
-load(fullfile(model_dir, 'Priors.mat'));
-load(fullfile(model_dir, 'NSI_reliability_model.mat'));
+load(fullfile(model_dir, 'priors.mat'));
+load(fullfile(model_dir, 'nsi_reliability_model.mat'));
 C = ft_read_cifti_mod(cifti_path);
 
 opts = struct;
@@ -36,7 +36,7 @@ Structures = { ...
     'PALLIDUM_RIGHT',   'PUTAMEN_RIGHT',   'THALAMUS_RIGHT', ...
     'HIPPOCAMPUS_RIGHT','AMYGDALA_RIGHT'};
 
-[QcPfm, ~] = pfm_qc(C, Structures, Priors, opts);
+[QcPfm, ~] = pfm_nsi_core(C, Structures, Priors, opts);
 
 OUT_10m = conditional_reliability_from_nsi(QcPfm, NSI_reliability_model, ...
     'NSI_T',10,'QueryT',60,'Verbose',false,'Plot',false);

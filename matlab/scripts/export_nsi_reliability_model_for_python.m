@@ -4,10 +4,10 @@ function export_nsi_reliability_model_for_python(out_path)
 here = fileparts(mfilename('fullpath'));
 model_dir = fullfile(here, '..', 'models');
 if nargin < 1 || isempty(out_path)
-    out_path = fullfile(model_dir, 'NSI_reliability_model_py.mat');
+    out_path = fullfile(model_dir, 'nsi_reliability_model_py.mat');
 end
 
-load(fullfile(model_dir, 'NSI_reliability_model.mat'));
+load(fullfile(model_dir, 'nsi_reliability_model.mat'));
 M = NSI_reliability_model;
 
 for e = 1:numel(M.early)

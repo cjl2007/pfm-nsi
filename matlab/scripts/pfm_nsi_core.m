@@ -1,5 +1,5 @@
-function [Output, Maps] = pfm_qc(C, Structures, Priors, opts)
-% PFM_QC  Quality control metrics for Precision Functional Mapping (PFM)
+function [Output, Maps] = pfm_nsi_core(C, Structures, Priors, opts)
+% PFM_NSI_CORE Core NSI metric engine for MATLAB PFM-NSI.
 %
 % OVERVIEW
 %   This function computes objective quality metrics to assess whether
@@ -67,7 +67,7 @@ function [Output, Maps] = pfm_qc(C, Structures, Priors, opts)
 %
 %     --- Spatial graph / spectral parameters ---
 %       .neighbor_mat_path : path to surface neighbor table
-%                            (default 'Cifti_surf_neighbors_LR_normalwall.mat')
+%                            (default 'cifti_surf_neighbors_lr_normalwall.mat')
 %       .W                 : precomputed cortical adjacency matrix (optional)
 %
 %       .slope_kmax      : max eigenmodes for spectral slope (default 400)
@@ -108,7 +108,7 @@ end
 
 if ~exist('opts','var') || isempty(opts), opts = struct(); end
 if ~isfield(opts,'ridge_lambdas'),     opts.ridge_lambdas   = [1 5 10 25 50]; end
-if ~isfield(opts,'neighbor_mat_path'), opts.neighbor_mat_path = local_default_model_path('Cifti_surf_neighbors_LR_normalwall.mat'); end
+if ~isfield(opts,'neighbor_mat_path'), opts.neighbor_mat_path = local_default_model_path('cifti_surf_neighbors_lr_normalwall.mat'); end
 if ~isfield(opts,'slope_kmax'),        opts.slope_kmax      = 400; end
 if ~isfield(opts,'slope_low_skip'),    opts.slope_low_skip  = 5; end
 if ~isfield(opts,'slope_high_frac'),   opts.slope_high_frac = 0.10; end

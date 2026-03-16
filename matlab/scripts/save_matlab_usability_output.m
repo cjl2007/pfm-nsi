@@ -1,5 +1,5 @@
 function save_matlab_usability_output(cifti_path, out_dir)
-% Save MATLAB pfm_qc_plots usability output for comparison.
+% Save MATLAB pfm_nsi usability output for comparison.
 %
 % Example:
 %   save_matlab_usability_output('/path/to/Data.dtseries.nii', '/tmp/pfm_nsi_out')
@@ -17,8 +17,8 @@ end
 here = fileparts(mfilename('fullpath'));
 model_dir = fullfile(here, '..', 'models');
 
-load(fullfile(model_dir, 'Priors.mat'));
-load(fullfile(model_dir, 'NSI_usability_model.mat'));
+load(fullfile(model_dir, 'priors.mat'));
+load(fullfile(model_dir, 'nsi_usability_model.mat'));
 C = ft_read_cifti_mod(cifti_path);
 
 opts = struct;
@@ -36,8 +36,8 @@ Structures = { ...
     'PALLIDUM_RIGHT',   'PUTAMEN_RIGHT',   'THALAMUS_RIGHT', ...
     'HIPPOCAMPUS_RIGHT','AMYGDALA_RIGHT'};
 
-[QcPfm, ~] = pfm_qc(C, Structures, Priors, opts);
-OUT = pfm_qc_plots(QcPfm, NSI_usability_model);
+[QcPfm, ~] = pfm_nsi_core(C, Structures, Priors, opts);
+OUT = pfm_nsi_plots(QcPfm, NSI_usability_model, 'ShowPlots', false);
 
 out_path = fullfile(out_dir, 'Usability_matlab.mat');
 save(out_path, 'OUT', '-v7');

@@ -119,6 +119,8 @@ opts.structure_assignment_lambda = 10;
 opts.BinaryROI = '/data/roi_motor.dscalar.nii';
 opts.BinaryROIThreshold = 0.5;
 
-[QcPfm, Maps] = pfm_qc(C, Structures, Priors, opts);
-pfm_qc_plots(QcPfm);
+OUT = pfm_nsi(C, ...
+    'Priors', Priors, ...
+    'Structures', Structures, ...
+    'Opts', opts);
 ```

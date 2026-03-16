@@ -14,7 +14,7 @@
 % This example relies on two classes of dependencies:
 %
 % (1) PFM-NSI scripts
-%     All functions required for NSI computation (including pfm_qc and
+%     All functions required for NSI computation (including pfm_nsi and
 %     supporting utilities) are expected to be available on the MATLAB
 %     path, for example by adding the current folder and its subfolders.
 %
@@ -32,14 +32,14 @@
 
 %% Load required priors
 %
-% Priors.mat contains group-level reference functional connectivity (FC)
+% priors.mat contains group-level reference functional connectivity (FC)
 % structure and related quantities used to compute the Network Similarity
 % Index (NSI).
 %
 % These priors are derived from high-quality, densely sampled datasets and
 % are treated as fixed reference inputs during QC.
 
-load('Priors.mat');
+load('priors.mat');
 %Priors.FC = Priors.Alt.FC;
 
 % By default, Priors.FC contains canonical FC templates corresponding to
@@ -104,28 +104,44 @@ Structures = { ...
     'PALLIDUM_RIGHT',   'PUTAMEN_RIGHT',   'THALAMUS_RIGHT', ...
     'HIPPOCAMPUS_RIGHT','AMYGDALA_RIGHT'};
 
-%% Run PFM quality control (PFM-QC)
+%% Load PFM usability model
 %
-% pfm_qc computes NSI and related metrics by comparing the spatial
-% organization of seed-based FC maps derived from the data to
-% reference structure encoded in the priors.
-%
+% The usability model maps NSI values onto a probabilistic estimate
+% of whether FC maps are likely to be interpretable and reliable
+% for individual-level analyses.
 
-[QcPfm, ~] = pfm_qc(C, Structures, Priors, opts);
+load('nsi_usability_model.mat');
+
+%% Run PFM-NSI
+%
+% pfm_nsi is the MATLAB entrypoint aligned to the Python CLI `run`
+% command. It computes NSI, optional contextual metrics, optional model
+% projections, and saves figures/outputs with Python-style names.
+%
+RunOut = pfm_nsi(C, ...
+    'Priors', Priors, ...
+    'Structures', Structures, ...
+    'Opts', opts, ...
+    'Usability', true, ...
+    'UsabilityModel', NSI_usability_model, ...
+    'OutDir', fullfile(pwd, 'pfm_nsi_out'), ...
+    'Prefix', 'pfm_nsi');
+
+QcPfm = RunOut.qc;
 
 % NOTE ON RUNTIME:
 %   - Runtime is currently on the order of several minutes.
 %   - This reflects the use of a large number (~25k) of distributed
 %     cortical targets (sparse seeds).
-%   - Runtime can be reduced by randomly subsampling 
+%   - Runtime can be reduced by randomly subsampling
 %     the sparse target set using opts.SparseFrac.
 %
 
 % Example: retain 25% of sparse targets
-% For this dataset, reduces run time from 
+% For this dataset, reduces run time from
 % 395 seconds to 140 seconds; & produces nearly identical NSI
-% opts.SparseFrac = 0.25; 
-% [QcPfm_SparseFrac, ~] = pfm_qc(C, Structures, Priors, opts);
+% opts.SparseFrac = 0.25;
+% [QcPfm_SparseFrac, ~] = pfm_nsi_core(C, Structures, Priors, opts);
 %
 % Advanced (optional): use an explicit binary ROI as sparse targets.
 % This overrides structure-based sparse seed generation and does not
@@ -143,26 +159,13 @@ Structures = { ...
 % opts.compute_structure_histograms = true;
 % opts.structure_assignment_lambda = 10;
 
-
-%% Load PFM usability model
+%% Inspect saved summary
 %
-% The usability model maps NSI values onto a probabilistic estimate
-% of whether FC maps are likely to be interpretable and reliable
-% for individual-level analyses.
+% pfm_nsi already generated plots, saved outputs, and computed the
+% usability projection above. The returned plot summary mirrors the
+% Python plotting summary object.
 
-load('NSI_usability_model.mat');
-
-%% Summarize QC results
-%
-% pfm_qc_plots generates a compact summary of:
-%  - NSI values
-%  - Auxiliary spatial metrics
-%  - Probabilistic estimates of PFM usability
-%
-% These summaries are intended to support informed judgment rather
-% than provide a hard binary decision.
-
-QcPfmSummary = pfm_qc_plots(QcPfm, NSI_usability_model);
+QcPfmSummary = RunOut.plot_summary;
 
 
 %% Use case #2:
@@ -228,7 +231,7 @@ Structures = { ...
 % large-scale FC organization is expressed in the data, which in turn
 % helps contextualize expectations for additional data collection.
 
-[QcPfm, ~] = pfm_qc(C_10m, Structures, Priors, opts);
+[QcPfm, ~] = pfm_nsi_core(C_10m, Structures, Priors, opts);
 
 %% -------------------------------
 % Load NSI-based reliability model
@@ -243,7 +246,7 @@ Structures = { ...
 % support prospective interpretation rather than subject-specific
 % prediction.
 
-load('NSI_reliability_model.mat');
+load('nsi_reliability_model.mat');
 
 %% -------------------------------
 % Evaluate reliability expectations at a target duration
@@ -342,7 +345,7 @@ Structures = { ...
 % has emerged, providing a principled way to interpret expected
 % FC reliability of the data already collected.
 
-[QcPfm, ~] = pfm_qc(C_30m, Structures, Priors, opts);
+[QcPfm, ~] = pfm_nsi_core(C_30m, Structures, Priors, opts);
 
 %% -------------------------------
 % Load NSI-based reliability model
@@ -352,7 +355,7 @@ Structures = { ...
 % and FC reliability at different scan durations, learned from
 % independent datasets spanning a wide range of data qualities.
 
-load('NSI_reliability_model.mat');
+load('nsi_reliability_model.mat');
 
 %% -------------------------------
 % Evaluate reliability at current duration
@@ -419,7 +422,7 @@ OUT = conditional_reliability_from_nsi(QcPFM, NSI_reliability_model, ...
 % and FC reliability at different scan durations, learned from
 % independent datasets spanning a wide range of data qualities.
 
-load('NSI_reliability_model.mat');
+load('nsi_reliability_model.mat');
 
 % ---------------------------------------------------------------
 % Scan economics
@@ -487,7 +490,7 @@ while T + DeltaT <= MaxT
     % has emerged, providing a principled way to interpret expected
     % FC reliability of the data already collected.
     
-    [QcPfm, ~] = pfm_qc(c, Structures, Priors, opts);
+    [QcPfm, ~] = pfm_nsi_core(c, Structures, Priors, opts);
     
     
     % Current projection
@@ -599,4 +602,3 @@ area(T_grid(idx_bad), dR_dT(idx_bad), ...
 text(OptimalT+2, Lambda*1.5, ...
     sprintf('Stop at %d min',OptimalT), ...
     'Color','r','FontWeight','bold');
-

@@ -19,14 +19,10 @@ Both implementations compute the same core outputs:
 
 ## Install (Python)
 
-```bash
-python -m pip install pfm-nsi
-```
-
 From source:
 
 ```bash
-git clone https://github.com/<ORG_OR_USER>/pfm-nsi.git
+git clone https://github.com/cjl2007/pfm-nsi.git
 cd pfm-nsi
 python -m pip install -e .
 ```

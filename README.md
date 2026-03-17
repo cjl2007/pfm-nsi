@@ -9,7 +9,7 @@ This repository ships two aligned implementations:
 
 Both implementations compute the same core outputs:
 
-- NSI (univariate + ridge-based)
+- NSI
 - Optional usability projection
 - Optional reliability projection
 - Optional contextual metrics (Moran's I, spectral slope)

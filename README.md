@@ -13,9 +13,9 @@ Both implementations compute the same core outputs:
 - Optional usability projection
 - Optional reliability projection
 - Optional contextual metrics (Moran's I, spectral slope)
-- Advanced binary ROI sparse-target override
-- Advanced per-network NSI histograms (beta-based network assignment)
-- Advanced per-structure NSI histograms (LH/RH-collapsed, grayscale)
+- Optional binary ROI sparse-target override
+- Optional per-network NSI histograms (beta-based network assignment)
+- Optional per-structure NSI histograms (LH/RH-collapsed, grayscale)
 
 ## Install (Python)
 

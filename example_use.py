@@ -5,6 +5,7 @@ import os
 import numpy as np
 
 from pfm_nsi import pfm_nsi
+from pfm_nsi.mesh import prepare_cifti_for_mesh
 from pfm_nsi.plots import pfm_nsi_plots
 from pfm_nsi.reliability import (
     conditional_reliability_from_nsi,
@@ -31,12 +32,17 @@ def load_usability_model(path: str):
 def main():
     parser = argparse.ArgumentParser(description="Python ExampleUse for PFM-NSI")
     parser.add_argument("--cifti", default="ME01/Data.dtseries.nii")
+    parser.add_argument("--fsaverage6", dest="mesh", action="store_const", const="fsaverage6", default="fslr32k")
+    parser.add_argument("--fslr32k", dest="mesh", action="store_const", const="fslr32k")
+    parser.add_argument("--wb-command", default=None, help="Optional explicit path to wb_command when using --fsaverage6")
     parser.add_argument("--priors", default="pfm_nsi/models/priors.npz")
     parser.add_argument("--usability", default="pfm_nsi/models/nsi_usability_model.json.gz")
     parser.add_argument("--reliability", default=None, help="pfm_nsi/models/nsi_reliability_model.json.gz")
     parser.add_argument("--roi-binary", default=None, help="Advanced: binary ROI mask/index file for sparse target override")
-    parser.add_argument("--network-hists", action="store_true", help="Advanced: render per-network NSI histograms")
-    parser.add_argument("--structure-hists", action="store_true", help="Advanced: render per-structure NSI histograms")
+    parser.add_argument("--network-hists", dest="network_hists", action="store_true", default=True, help="Advanced: render per-network NSI histograms (default: enabled)")
+    parser.add_argument("--no-network-hists", dest="network_hists", action="store_false", help="Disable per-network NSI histograms")
+    parser.add_argument("--structure-hists", dest="structure_hists", action="store_true", default=True, help="Advanced: render per-structure NSI histograms (default: enabled)")
+    parser.add_argument("--no-structure-hists", dest="structure_hists", action="store_false", help="Disable per-structure NSI histograms")
     parser.add_argument("--no-plots", action="store_true")
     parser.add_argument("--save-dir", default=None, help="Directory to save figures (png)")
     parser.add_argument("--prefix", default="pfm_nsi", help="Filename prefix for saved figures")
@@ -65,19 +71,20 @@ def main():
         "AMYGDALA_RIGHT",
     ]
 
-    opts = {"compute_morans": True, "compute_slope": True, "ridge_lambdas": 10}
+    opts = {"compute_morans": True, "compute_slope": True, "ridge_lambdas": 10, "compute_network_histograms": bool(args.network_hists), "compute_structure_histograms": bool(args.structure_hists), "network_assignment_lambda": 10, "structure_assignment_lambda": 10}
     if args.roi_binary:
         opts["BinaryROI"] = args.roi_binary
         opts["SparseIdxOverrideBypassStructures"] = True
     if args.network_hists:
-        opts["compute_network_histograms"] = True
-        opts["network_assignment_lambda"] = 10
         opts["keep_betas"] = True
-    if args.structure_hists:
-        opts["compute_structure_histograms"] = True
-        opts["structure_assignment_lambda"] = 10
 
-    qc, maps = pfm_nsi(args.cifti, structures, args.priors, opts)
+    prepared = prepare_cifti_for_mesh(
+        args.cifti,
+        mesh=args.mesh,
+        dtype=np.float32,
+        wb_command=args.wb_command,
+    )
+    qc, maps = pfm_nsi(prepared, structures, args.priors, opts)
     usability = load_usability_model(args.usability)
     summary = pfm_nsi_plots(
         qc,

@@ -19,3 +19,6 @@ figures/
 *.npz
 *.json
 *.log
+!pfm_nsi/models/priors.npz
+!pfm_nsi/models/cifti_surf_neighbors_lr_normalwall.npz
+!pfm_nsi/models/mesh/fslr32k_cortex_masks.npz

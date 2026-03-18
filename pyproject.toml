@@ -45,4 +45,5 @@ pfm_nsi = [
   "models/*.npz",
   "models/*.json",
   "models/*.json.gz",
+  "models/mesh/*",
 ]

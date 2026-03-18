@@ -8,7 +8,8 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from .core import pfm_nsi, read_cifti
+from .core import pfm_nsi
+from .mesh import prepare_cifti_for_mesh
 from .plots import pfm_nsi_plots, plot_nsi_usability_distribution
 from .reliability import conditional_reliability_from_nsi, load_nsi_reliability_model
 
@@ -182,8 +183,15 @@ def run(args: argparse.Namespace) -> int:
         structures = _parse_list(args.structures, cast=str)
 
     opts = _build_opts(args)
+    calc_dtype = np.float32 if opts.get("use_float32", True) else np.float64
+    prepared_c = prepare_cifti_for_mesh(
+        args.cifti,
+        mesh=args.mesh,
+        dtype=calc_dtype,
+        wb_command=getattr(args, "wb_command", None),
+    )
 
-    qc, _ = pfm_nsi(args.cifti, structures, args.priors, opts)
+    qc, _ = pfm_nsi(prepared_c, structures, args.priors, opts)
     qc_for_reliability = qc
 
     usability_model = None
@@ -258,15 +266,12 @@ def run(args: argparse.Namespace) -> int:
         if args.tr is not None:
             if args.tr <= 0:
                 raise ValueError("--tr must be positive.")
-            c_early = read_cifti(
-                args.cifti,
-                dtype=np.float32 if opts.get("use_float32", True) else np.float64,
-            )
+            c_early = dict(prepared_c)
             n_total_tp = int(c_early["data"].shape[1])
             n_early_tp = int(round((float(args.nsi_t) * 60.0) / float(args.tr)))
             n_early_tp = max(1, n_early_tp)
             n_used = min(n_total_tp, n_early_tp)
-            c_early["data"] = c_early["data"][:, :n_used]
+            c_early["data"] = prepared_c["data"][:, :n_used]
             qc_for_reliability, _ = pfm_nsi(c_early, structures, args.priors, opts)
             print(
                 f"Reliability NSI window: using first {n_used}/{n_total_tp} timepoints "
@@ -327,7 +332,14 @@ def batch(args: argparse.Namespace) -> int:
             raise ValueError("No CIFTI paths were provided for batch mode.")
 
         for i, cifti_path in enumerate(cifti_paths, start=1):
-            qc, _ = pfm_nsi(cifti_path, structures, args.priors, opts)
+            calc_dtype = np.float32 if opts.get("use_float32", True) else np.float64
+            prepared_c = prepare_cifti_for_mesh(
+                cifti_path,
+                mesh=args.mesh,
+                dtype=calc_dtype,
+                wb_command=getattr(args, "wb_command", None),
+            )
+            qc, _ = pfm_nsi(prepared_c, structures, args.priors, opts)
             nsi = float(qc["NSI"]["MedianScore"])
             sid = _subject_id_from_cifti_path(cifti_path, i)
             nsi_values.append(nsi)
@@ -429,7 +441,7 @@ def build_parser() -> argparse.ArgumentParser:
         "Common usage:\n"
         "  pfm-nsi run --cifti /path/to/Data.dtseries.nii\n"
         "  pfm-nsi batch --nsi-values 0.2,0.35,0.41,0.58\n"
-        "  pfm-nsi run --cifti /path/to/Data.dtseries.nii --usability\n"
+        "  pfm-nsi run --cifti /path/to/Data.dtseries.nii --no-usability\n"
         "  pfm-nsi batch --batch-input cifti-list-file --cifti-list-file /path/to/ciftis.txt\n"
         "  pfm-nsi run --cifti /path/to/Data.dtseries.nii --reliability --nsi-t 10 --query-t 60\n"
         "  pfm-nsi run --cifti /path/to/Data.dtseries.nii --roi-binary /path/to/roi_mask.dscalar.nii\n"
@@ -437,7 +449,7 @@ def build_parser() -> argparse.ArgumentParser:
         "Notes:\n"
         "  - `run` computes NSI for one subject and writes subject-level outputs/figures.\n"
         "  - `batch` computes usability across many NSI values or CIFTIs and writes distribution outputs.\n"
-        "  - Usability and reliability projections are opt-in via flags.\n"
+        "  - Usability projection is enabled by default for `run`; reliability is opt-in via --reliability.\n"
         "  - Moran's I and spectral slope are advanced metrics (opt-in).\n"
     )
     p = argparse.ArgumentParser(
@@ -450,10 +462,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_epilog = (
         "Examples:\n"
-        "  1) NSI only (default metrics)\n"
+        "  1) Default run (NSI + usability + network/structure histograms)\n"
         "     pfm-nsi run --cifti /path/to/Data.dtseries.nii\n\n"
-        "  2) Add usability projection/traffic-light curve\n"
-        "     pfm-nsi run --cifti /path/to/Data.dtseries.nii --usability\n\n"
+        "  2) Disable usability projection\n"
+        "     pfm-nsi run --cifti /path/to/Data.dtseries.nii --no-usability\n\n"
         "  3) Reliability projection at 60 minutes\n"
         "     pfm-nsi run --cifti /path/to/Data.dtseries.nii --reliability --nsi-t 10 --query-t 60\n\n"
         "  4) Reliability projection for multiple query times\n"
@@ -472,14 +484,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run PFM-NSI on one dtseries file",
         description=(
             "Run PFM-NSI and optional projections.\n"
-            "Default run computes NSI and writes NSI outputs. Optional flags add usability,\n"
-            "reliability, and advanced spatial metrics."
+            "Default run computes NSI, usability projection, and network/structure histogram outputs.\n"
+            "Reliability projection remains opt-in via --reliability."
         ),
         epilog=run_epilog,
         formatter_class=argparse.RawTextHelpFormatter,
     )
     default_priors = os.path.join(os.path.dirname(__file__), "models", "priors.npz")
     run_p.add_argument("--cifti", required=True, help="Input CIFTI dtseries file (.dtseries.nii)")
+    run_p.add_argument(
+        "--fsaverage6",
+        dest="mesh",
+        action="store_const",
+        const="fsaverage6",
+        default="fslr32k",
+        help="Treat the input cortical mesh as fsaverage6 and resample to packaged fsLR-32k resources via wb_command",
+    )
+    run_p.add_argument(
+        "--fslr32k",
+        dest="mesh",
+        action="store_const",
+        const="fslr32k",
+        help="Treat the input cortical mesh as fsLR-32k (default)",
+    )
+    run_p.add_argument(
+        "--wb-command",
+        default=None,
+        help="Optional explicit path to Connectome Workbench wb_command (used only with --fsaverage6)",
+    )
     run_p.add_argument(
         "--priors",
         default=default_priors,
@@ -509,8 +541,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_p.add_argument(
         "--usability",
+        dest="usability",
         action="store_true",
-        help="Enable NSI usability projection and usability curve",
+        default=True,
+        help="Enable NSI usability projection and usability curve (default: enabled)",
+    )
+    run_p.add_argument(
+        "--no-usability",
+        dest="usability",
+        action="store_false",
+        help="Disable NSI usability projection and usability curve",
     )
     run_p.add_argument(
         "--reliability",
@@ -570,8 +610,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_p.add_argument(
         "--network-hists",
+        dest="network_hists",
         action="store_true",
-        help="Advanced: output per-network NSI histograms using ridge-beta network assignment",
+        default=True,
+        help="Advanced: output per-network NSI histograms using ridge-beta network assignment (default: enabled)",
+    )
+    run_p.add_argument(
+        "--no-network-hists",
+        dest="network_hists",
+        action="store_false",
+        help="Disable per-network NSI histogram outputs",
     )
     run_p.add_argument(
         "--network-assignment-lambda",
@@ -581,8 +629,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_p.add_argument(
         "--structure-hists",
+        dest="structure_hists",
         action="store_true",
-        help="Advanced: output stacked NSI histograms by LH/RH-collapsed brain structure",
+        default=True,
+        help="Advanced: output stacked NSI histograms by LH/RH-collapsed brain structure (default: enabled)",
+    )
+    run_p.add_argument(
+        "--no-structure-hists",
+        dest="structure_hists",
+        action="store_false",
+        help="Disable per-structure NSI histogram outputs",
     )
     run_p.add_argument(
         "--structure-assignment-lambda",
@@ -646,6 +702,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--cifti-list-file",
         default=None,
         help="Path to file containing CIFTI paths (newline or comma separated)",
+    )
+    batch_p.add_argument(
+        "--fsaverage6",
+        dest="mesh",
+        action="store_const",
+        const="fsaverage6",
+        default="fslr32k",
+        help="Treat input cortical meshes as fsaverage6 and resample to packaged fsLR-32k resources via wb_command",
+    )
+    batch_p.add_argument(
+        "--fslr32k",
+        dest="mesh",
+        action="store_const",
+        const="fslr32k",
+        help="Treat input cortical meshes as fsLR-32k (default)",
+    )
+    batch_p.add_argument(
+        "--wb-command",
+        default=None,
+        help="Optional explicit path to Connectome Workbench wb_command (used only with --fsaverage6)",
     )
     batch_p.add_argument(
         "--priors",

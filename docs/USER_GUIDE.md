@@ -12,7 +12,7 @@ Optional metrics:
 
 - Moran's I
 - Spectral slope
-- Usability projection (`P(PFM-usable | NSI)`)
+- Usability projection (`P(PFM-usable | NSI)`) (enabled by default in Python CLI `run`)
 - Reliability projection (`P(R >= threshold | NSI, time)`)
 
 Advanced options:
@@ -23,18 +23,25 @@ Advanced options:
 
 ## 2) Python CLI
 
-Basic run:
+Basic run (default: NSI + usability + network/structure histograms):
 
 ```bash
 pfm-nsi run --cifti /path/to/Data.dtseries.nii
 ```
 
-With usability + reliability:
+fsaverage6 input:
 
 ```bash
 pfm-nsi run \
   --cifti /path/to/Data.dtseries.nii \
-  --usability \
+  --fsaverage6
+```
+
+With reliability (usability already on by default):
+
+```bash
+pfm-nsi run \
+  --cifti /path/to/Data.dtseries.nii \
   --reliability \
   --nsi-t 10 \
   --query-t 30,60
@@ -48,21 +55,19 @@ pfm-nsi run \
   --roi-binary /path/to/roi_mask.dscalar.nii
 ```
 
-Advanced per-network histograms:
+Network histograms are enabled by default in `run` (disable with `--no-network-hists`).
 
 ```bash
 pfm-nsi run \
   --cifti /path/to/Data.dtseries.nii \
-  --network-hists \
   --network-assignment-lambda 10
 ```
 
-Advanced per-structure histograms:
+Structure histograms are enabled by default in `run` (disable with `--no-structure-hists`).
 
 ```bash
 pfm-nsi run \
   --cifti /path/to/Data.dtseries.nii \
-  --structure-hists \
   --structure-assignment-lambda 10
 ```
 
@@ -71,11 +76,15 @@ Notes:
 - `--roi-binary` overrides structure-based sparse selection.
 - When `--roi-binary` is set, additional sparse subsampling is disabled.
 - Network assignment uses the ridge beta vector for each sparse target and picks `argmax(beta)`.
+- Default input mesh is fsLR-32k.
+- `--fsaverage6` requires Connectome Workbench (`wb_command`) and resamples cortical data to the packaged fsLR-32k resources before scoring.
+- If `wb_command` is not on `PATH`, pass `--wb-command /path/to/wb_command` or set `WB_COMMAND=/path/to/wb_command`.
 
 ## 3) Python API
 
 ```python
 from pfm_nsi import pfm_nsi
+from pfm_nsi.mesh import prepare_cifti_for_mesh
 from pfm_nsi.plots import pfm_nsi_plots
 
 structures = [
@@ -97,9 +106,25 @@ opts = {
     "network_assignment_lambda": 10,
 }
 
-qc, maps = pfm_nsi("/path/to/Data.dtseries.nii", structures, "pfm_nsi/models/priors.npz", opts)
+prepared = prepare_cifti_for_mesh("/path/to/Data.dtseries.nii", mesh="fslr32k")
+qc, maps = pfm_nsi(prepared, structures, "pfm_nsi/models/priors.npz", opts)
 pfm_nsi_plots(qc, show_plots=True, network_histograms=True, network_assignment_lambda=10)
 ```
+
+Python API with fsaverage6 input:
+
+```python
+prepared = prepare_cifti_for_mesh(
+    "/path/to/Data.dtseries.nii",
+    mesh="fsaverage6",
+    wb_command="/path/to/wb_command",  # optional if wb_command is already on PATH
+)
+qc, maps = pfm_nsi(prepared, structures, "pfm_nsi/models/priors.npz", opts)
+```
+
+The Python implementation also expects the packaged cortical neighbor table at
+`pfm_nsi/models/cifti_surf_neighbors_lr_normalwall.npz` unless you override
+`opts["neighbor_mat_path"]`.
 
 ROI override in API:
 
@@ -131,6 +156,17 @@ OUT = pfm_nsi(C, ...
     'Opts', opts);
 ```
 
+MATLAB with fsaverage6 input:
+
+```matlab
+OUT = pfm_nsi('/path/to/Data.dtseries.nii', ...
+    'Priors', Priors, ...
+    'Structures', Structures, ...
+    'Opts', opts, ...
+    'Mesh', 'fsaverage6', ...
+    'WBCommand', '/path/to/wb_command');
+```
+
 MATLAB ROI override:
 
 ```matlab
@@ -152,6 +188,7 @@ Options aligned:
 - `network_assignment_lambda`
 - `compute_structure_histograms`
 - `structure_assignment_lambda`
+- input mesh selection (`fslr32k` default, `fsaverage6` optional)
 
 Core output alignment:
 

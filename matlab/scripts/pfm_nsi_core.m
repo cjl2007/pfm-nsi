@@ -8,9 +8,7 @@ function [Output, Maps] = pfm_nsi_core(C, Structures, Priors, opts)
 %
 %   The PRIMARY QC METRIC is the Network Similarity Index (NSI), which
 %   quantifies how well each target's FC map expresses canonical large-scale
-%   network structure using both:
-%     (a) multivariate ridge regression (R², primary outcome).
-%     (b) univariate Spearman correlation (for additional context).
+%   network structure using multivariate ridge regression (R²).
 %
 %   Two ADDITIONAL, OPTIONAL METRICS can be computed to help contextualize
 %   NSI values by describing spatial structure in the FC maps:
@@ -38,6 +36,12 @@ function [Output, Maps] = pfm_nsi_core(C, Structures, Priors, opts)
 %                          (default [1 5 10 25 50])
 %       .headline_lambda : lambda whose R² is summarized in
 %                          Output.NSI.MedianScore (default 10)
+%       .block_size      : sparse-target batch size for blockwise processing
+%                          (default 512; set <=0 for full-batch processing)
+%       .keep_betas      : true/false, retain ridge beta maps in output
+%                          (default false)
+%       .keep_fc_map     : true/false, retain full FC map in Maps.FC
+%                          (default false)
 %
 %     --- Sparse target (seed) selection ---
 %       .SparseIdxOverride : [Nt × 1] vector of vertex/voxel indices
@@ -85,9 +89,7 @@ function [Output, Maps] = pfm_nsi_core(C, Structures, Priors, opts)
 %   Output : struct containing QC metrics
 %
 %     --- PRIMARY QC OUTPUT ---
-%       .NSI.Univariate.AllRho : [Nt × K] Spearman correlations
-%       .NSI.Univariate.MaxRho : [Nt × 1] max correlation per target
-%       .NSI.Ridge.LambdaXX    : ridge betas and R² for each lambda
+%       .NSI.Ridge.LambdaXX    : ridge betas (optional) and R² for each lambda
 %       .NSI.MedianScore       : median R² at opts.headline_lambda
 %
 %     --- CONTEXTUAL METRICS (OPTIONAL) ---
@@ -97,8 +99,8 @@ function [Output, Maps] = pfm_nsi_core(C, Structures, Priors, opts)
 %     --- Provenance ---
 %       .Params                : resolved opts used for this run
 %
-%   Maps : struct with FC maps and target indices
-%       .FC        : [nCortex × Nt] FC maps
+%   Maps : struct with target indices and optional FC maps
+%       .FC        : [nCortex × Nt] FC maps (only when opts.keep_fc_map=true)
 %       .SparseIdx : [Nt × 1] sparse target indices
 %
 % -------------------- Setup & data --------------------
@@ -139,6 +141,15 @@ if ~isfield(opts,'compute_structure_histograms')
 end
 if ~isfield(opts,'structure_assignment_lambda')
     opts.structure_assignment_lambda = opts.headline_lambda;
+end
+if ~isfield(opts,'block_size') || isempty(opts.block_size)
+    opts.block_size = 512;
+end
+if ~isfield(opts,'keep_betas')
+    opts.keep_betas = false;
+end
+if ~isfield(opts,'keep_fc_map')
+    opts.keep_fc_map = false;
 end
 
 if isempty(Structures)
@@ -205,57 +216,115 @@ end
 
 % -------------------- Functional connectivity --------------------
 X = double(C.data(CorticalIdx,:));      % Vcortex × T
-Y = double(C.data(SparseIdx,:));        % Nt × T  (will transpose)
+Y = double(C.data(SparseIdx,:));        % Nt × T
 muX = mean(X,2);  sX = std(X,0,2);  sX(sX==0)=Inf;
 muY = mean(Y,2);  sY = std(Y,0,2);  sY(sY==0)=Inf;
 Xz = (X - muX).* (1./sX);               % V × T
 Yz = (Y - muY).* (1./sY);
-FC = (Xz * Yz.') / (size(X,2)-1);       % Vcortex × Nt
-
-% ---- demean FC maps across vertices (important for non-MGTR data) ----
-if opts.fc_demean
-    FC = bsxfun(@minus, FC, mean(FC, 1, 'omitnan'));
+Nt = size(Yz,1);
+T = size(Xz,2);
+if Nt == 0
+    error('No sparse targets available after filtering.');
 end
-
-% Log some FC information for output
-Maps.FC = zeros(nCorticalVertices,size(FC,2)); % Vcortex x Nt
-Maps.FC(CorticalIdx,:) = FC;
-Maps.SparseIdx = SparseIdx;
+if opts.block_size <= 0
+    blockSize = Nt;
+else
+    blockSize = min(Nt, max(1, round(opts.block_size)));
+end
 
 % ---------- Metric 1: Network similarity index (NSI) ------------------
-% (a) Univariate (Spearman)
+% Ridge regression (SVD fast path), computed in target blocks.
 P  = Priors.FC(CorticalIdx,:);          % V x K
-XR = tiedrank(FC);                      % V x Nt
-PR = tiedrank(P);                       % V x K
-XR = (XR - mean(XR,1)) ./ std(XR,0,1);
-PR = (PR - mean(PR,1)) ./ std(PR,0,1);
-Rho = (XR' * PR) / (size(XR,1)-1);      % Nt x K
-Output.NSI.Univariate.AllRho = Rho;
-Output.NSI.Univariate.MaxRho = max(Rho,[],2);
-
-% (b) Ridge regression (SVD fast path)
-Xpred = P; Yresp = FC;
-[U,S,Vv] = svd(Xpred,'econ'); s = diag(S); UtY = U' * Yresp;
-for lambda = opts.ridge_lambdas
-    w = s ./ (s.^2 + lambda);
-    B = Vv * (bsxfun(@times, w, UtY));     % K × Nt
-    Yhat = Xpred * B;
-    SSE  = sum((Yresp - Yhat).^2, 1);
-    SST  = sum((Yresp - mean(Yresp,1)).^2, 1);
-    R2   = 1 - SSE ./ max(SST, eps); R2(R2<0)=NaN;
+[U,S,Vv] = svd(P,'econ'); s = diag(S);
+lamList = double(opts.ridge_lambdas(:)');
+Output.NSI.Ridge = struct();
+for lambda = lamList
     tag = ['Lambda' num2str(lambda)];
-    Output.NSI.Ridge.(tag).Betas = B;
-    Output.NSI.Ridge.(tag).R2    = R2;
+    Output.NSI.Ridge.(tag).R2 = nan(1, Nt);
+    if opts.keep_betas
+        Output.NSI.Ridge.(tag).Betas = zeros(size(P,2), Nt, 'single');
+    end
 end
+if opts.compute_network_histograms
+    netTag = ['Lambda' num2str(opts.network_assignment_lambda)];
+    assert(any(abs(lamList - double(opts.network_assignment_lambda)) < 1e-12), ...
+        'network_assignment_lambda not in ridge_lambdas.');
+    netIdx = nan(1, Nt);
+else
+    netTag = '';
+    netIdx = [];
+end
+
+needFCMatrix = (opts.compute_slope || opts.keep_fc_map);
+if needFCMatrix
+    FC = zeros(size(Xz,1), Nt, 'like', Xz);  % Vcortex x Nt
+else
+    FC = [];
+end
+
+% -------------------- Adjacency (only if needed) --------------------
+need_W = (opts.compute_morans || opts.compute_slope);
+W = [];  % default
+if need_W
+    if isfield(opts,'W') && ~isempty(opts.W)
+        W = opts.W;
+    else
+        W = build_cortex_adjacency(CorticalIdx, opts.neighbor_mat_path); % binary topology
+    end
+end
+if opts.compute_morans
+    Output.MoransI.mI = nan(1, Nt);
+else
+    Output.MoransI.mI = [];
+end
+
+for b0 = 1:blockSize:Nt
+    b1 = min(Nt, b0 + blockSize - 1);
+    Yzb = Yz(b0:b1,:);
+    FCb = (Xz * Yzb.') / (T - 1);
+    if opts.fc_demean
+        FCb = bsxfun(@minus, FCb, mean(FCb, 1, 'omitnan'));
+    end
+    if needFCMatrix
+        FC(:, b0:b1) = FCb;
+    end
+
+    if opts.compute_morans
+        Output.MoransI.mI(b0:b1) = morans_i_withW(FCb, W);
+    end
+
+    UtYb = U' * FCb;
+    for lambda = lamList
+        w = s ./ (s.^2 + lambda);
+        B = Vv * (bsxfun(@times, w, UtYb));     % K × Nb
+        Yhat = P * B;
+        SSE  = sum((FCb - Yhat).^2, 1);
+        SST  = sum((FCb - mean(FCb,1)).^2, 1);
+        R2   = 1 - SSE ./ max(SST, eps);
+        R2(R2<0) = NaN;
+        tag = ['Lambda' num2str(lambda)];
+        Output.NSI.Ridge.(tag).R2(b0:b1) = R2;
+        if opts.keep_betas
+            Output.NSI.Ridge.(tag).Betas(:,b0:b1) = single(B);
+        end
+        if opts.compute_network_histograms && strcmp(tag, netTag)
+            [~, idx] = max(B, [], 1);
+            netIdx(b0:b1) = idx;
+        end
+    end
+end
+
+Maps.SparseIdx = SparseIdx;
+if opts.keep_fc_map
+    Maps.FC = zeros(nCorticalVertices, Nt, 'like', Xz);
+    Maps.FC(CorticalIdx,:) = FC;
+end
+
 headTag = ['Lambda' num2str(opts.headline_lambda)];
 assert(isfield(Output.NSI.Ridge, headTag), 'headline_lambda not in ridge_lambdas.');
 Output.NSI.MedianScore = nanmedian(Output.NSI.Ridge.(headTag).R2);
 if opts.compute_network_histograms
-    netTag = ['Lambda' num2str(opts.network_assignment_lambda)];
-    assert(isfield(Output.NSI.Ridge, netTag), 'network_assignment_lambda not in ridge_lambdas.');
-    Bnet = Output.NSI.Ridge.(netTag).Betas;   % K x Nt
-    [~, netIdx] = max(Bnet, [], 1);           % 1 x Nt
-    nNet = size(Bnet, 1);
+    nNet = size(P, 2);
     labels = cell(1,nNet);
     colors = [];
     if isfield(Priors, 'NetworkLabels') && ~isempty(Priors.NetworkLabels)
@@ -323,26 +392,11 @@ if opts.compute_structure_histograms
     Output.NSI.StructureAssignment.(structTag).Summary = summary;
 end
 
-% -------------------- Adjacency (only if needed) --------------------
-need_W = (opts.compute_morans || opts.compute_slope);
-W = [];  % default
-if need_W
-    if isfield(opts,'W') && ~isempty(opts.W)
-        W = opts.W;
-    else
-        W = build_cortex_adjacency(CorticalIdx, opts.neighbor_mat_path); % binary topology
-    end
-end
-
-% -------------------- Metric 2: Moran's I (optional) --------------------
-if opts.compute_morans
-    Output.MoransI.mI = morans_i_withW(FC, W);
-else
-    Output.MoransI.mI = [];   % keep field but empty if skipped
-end
-
 % -------------------- Metric 3: Spectral slope (optional) -----------
 if opts.compute_slope
+    if isempty(FC)
+        error('FC matrix unavailable for spectral slope computation.');
+    end
     [slope, freq, power] = spectral_slope_withW(FC, W, ...
         opts.slope_kmax, opts.slope_low_skip, opts.slope_high_frac);
     Output.SpectralSlope.slope = slope;   % [1 x Nt]

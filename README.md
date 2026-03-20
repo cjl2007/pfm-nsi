@@ -9,7 +9,7 @@ This repository ships two aligned implementations:
 
 Both implementations compute the same core outputs:
 
-- NSI (univariate + ridge-based)
+- NSI (ridge-based)
 - Usability projection (enabled by default in Python CLI `run`)
 - Optional reliability projection (opt-in via `--reliability`)
 - Optional contextual metrics (Moran's I, spectral slope)
@@ -87,6 +87,14 @@ pfm-nsi run \
   --cifti /path/to/Data.dtseries.nii \
   --roi-binary /path/to/roi_mask.dscalar.nii
 ```
+
+Sparse target guidance:
+
+- `--sparse-frac` reduces the number of sparse targets after sparse parcellation.
+- Recommended defaults by timepoints (`T`):
+  - `T <= 2000`: `--sparse-frac 0.25`
+  - `T > 2000`: `--sparse-frac 0.10`
+- `--roi-binary` bypasses sparse subsampling.
 
 ## MATLAB Fallback
 

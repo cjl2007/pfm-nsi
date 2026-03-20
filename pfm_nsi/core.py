@@ -221,12 +221,6 @@ def read_cifti(path: str, dtype: np.dtype = np.float64) -> Dict[str, Any]:
     }
 
 
-def _tiedrank(X: np.ndarray, axis: int = 0) -> np.ndarray:
-    from scipy.stats import rankdata
-
-    return rankdata(X, axis=axis, method="average")
-
-
 def sparse_parcellation(C: Dict[str, Any], neighbor_mat_path: str) -> np.ndarray:
     Nbr = _smartload_array(neighbor_mat_path, key="neighbors")
     if Nbr.shape[1] < 2:
@@ -431,10 +425,9 @@ def pfm_nsi(
     lowmem = bool(opts.get("lowmem", False))
     use_float32 = bool(opts.get("use_float32", lowmem))
     calc_dtype = np.float32 if use_float32 else np.float64
-    keep_allrho = bool(opts.get("keep_allrho", not lowmem))
     keep_betas = bool(opts.get("keep_betas", not lowmem))
     keep_fc_map = bool(opts.get("keep_fc_map", not lowmem))
-    block_size = int(opts.get("block_size", 2048 if lowmem else 0))
+    block_size = int(opts.get("block_size", 512 if lowmem else 0))
 
     if isinstance(C, (str, os.PathLike)):
         C = read_cifti(str(C), dtype=calc_dtype)
@@ -529,16 +522,11 @@ def pfm_nsi(
     Yz = (Y - muY) * (1.0 / sY)
 
     P = PFC[CorticalIdx, :]
-    PR = _tiedrank(P, axis=0)
-    PR = (PR - np.mean(PR, axis=0, keepdims=True)) / np.std(PR, axis=0, ddof=1, keepdims=True)
 
     n_targets = Yz.shape[0]
     if block_size <= 0:
         block_size = n_targets
     block_size = max(1, min(block_size, n_targets))
-
-    allrho_blocks: List[np.ndarray] = []
-    max_rho = np.full((n_targets,), np.nan, dtype=np.float64)
 
     # Ridge regression setup (SVD of priors templates).
     Xpred = P
@@ -586,14 +574,6 @@ def pfm_nsi(
         if FC_full is not None:
             FC_full[:, b0:b1] = FCb.astype(calc_dtype, copy=False)
 
-        # NSI (Univariate Spearman)
-        XR = _tiedrank(FCb, axis=0)
-        XR = (XR - np.mean(XR, axis=0, keepdims=True)) / np.std(XR, axis=0, ddof=1, keepdims=True)
-        rho_b = (XR.T @ PR) / (XR.shape[0] - 1)
-        max_rho[b0:b1] = np.max(rho_b, axis=1)
-        if keep_allrho:
-            allrho_blocks.append(rho_b)
-
         # Ridge R^2 (and optional betas)
         UtYb = U.T @ FCb
         for lam in lam_list:
@@ -614,15 +594,7 @@ def pfm_nsi(
         if compute_morans:
             mI[b0:b1] = morans_i_withW(FCb, W)
 
-    Output: Dict[str, Any] = {
-        "NSI": {
-            "Univariate": {
-                "AllRho": np.vstack(allrho_blocks) if keep_allrho else np.array([]),
-                "MaxRho": max_rho,
-            },
-            "Ridge": {},
-        }
-    }
+    Output: Dict[str, Any] = {"NSI": {"Ridge": {}}}
 
     for lam in lam_list:
         tag = lam_tags[lam]
@@ -746,7 +718,6 @@ def pfm_nsi(
         "structure_assignment_lambda": structure_assignment_lambda,
         "lowmem": lowmem,
         "use_float32": use_float32,
-        "keep_allrho": keep_allrho,
         "keep_betas": keep_betas,
         "keep_fc_map": keep_fc_map,
         "block_size": block_size,

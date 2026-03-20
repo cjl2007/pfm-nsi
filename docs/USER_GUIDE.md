@@ -80,6 +80,28 @@ Notes:
 - `--fsaverage6` requires Connectome Workbench (`wb_command`) and resamples cortical data to the packaged fsLR-32k resources before scoring.
 - If `wb_command` is not on `PATH`, pass `--wb-command /path/to/wb_command` or set `WB_COMMAND=/path/to/wb_command`.
 
+Sparse target guidance (`SparseFrac`):
+
+- `SparseFrac` controls how many sparse targets are retained after sparse parcellation.
+- Lower values reduce runtime substantially; RAM may drop modestly on very large concatenated runs.
+- Binary ROI mode (`--roi-binary` / `opts.BinaryROI`) bypasses `SparseFrac`.
+
+Recommended defaults by number of timepoints (`T`):
+
+- `T <= 2000`: use `SparseFrac=0.25` (or full sparse targets for highest fidelity when resources are ample).
+- `2000 < T <= 10000`: use `SparseFrac=0.10`.
+- `T > 10000` (large concatenations): use `SparseFrac=0.10` as default.
+
+Examples:
+
+```bash
+# Faster run on medium/large datasets
+pfm-nsi run --cifti /path/to/Data.dtseries.nii --sparse-frac 0.10
+
+# Higher-fidelity sparse sampling with moderate speedup
+pfm-nsi run --cifti /path/to/Data.dtseries.nii --sparse-frac 0.25
+```
+
 ## 3) Python API
 
 ```python
@@ -192,9 +214,8 @@ Options aligned:
 
 Core output alignment:
 
-- `NSI.Univariate.MaxRho`
 - `NSI.Ridge.LambdaXX.R2`
-- `NSI.Ridge.LambdaXX.Betas`
+- `NSI.Ridge.LambdaXX.Betas` (optional / memory-saving off by default)
 - `NSI.MedianScore`
 - `NSI.NetworkAssignment.LambdaXX.NetworkIndex`
 - `NSI.NetworkAssignment.LambdaXX.NetworkLabels`

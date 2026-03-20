@@ -39,6 +39,7 @@ opts = struct;
 opts.ridge_lambdas = 10;
 opts.compute_morans = false;
 opts.compute_slope = false;
+opts.SparseFrac = 0.25; % recommended default for shorter runs
 
 Structures = {'CORTEX_LEFT','CORTEX_RIGHT'};
 OUT = pfm_nsi(C, ...
@@ -66,6 +67,18 @@ Binary ROI sparse-target override (advanced, non-default):
 opts.BinaryROI = '/path/to/roi_mask.dscalar.nii';
 opts.BinaryROIThreshold = 0.5;
 ```
+
+Sparse target guidance (`opts.SparseFrac`):
+
+- `opts.SparseFrac` is applied after sparse parcellation and structure filtering.
+- Lower values reduce runtime substantially; RAM reductions are stronger on very large concatenated datasets.
+- If `opts.BinaryROI` is set, sparse subsampling is bypassed.
+
+Recommended defaults by number of timepoints (`T`):
+
+- `T <= 2000`: `opts.SparseFrac = 0.25` (or omit for full sparse-target set if resources are ample)
+- `2000 < T <= 10000`: `opts.SparseFrac = 0.10`
+- `T > 10000`: `opts.SparseFrac = 0.10`
 
 Per-network NSI histograms (advanced):
 
@@ -112,9 +125,8 @@ This additionally writes:
 
 Core fields are aligned:
 
-- `NSI.Univariate.MaxRho`
 - `NSI.Ridge.LambdaXX.R2`
-- `NSI.Ridge.LambdaXX.Betas`
+- `NSI.Ridge.LambdaXX.Betas` (optional / memory-saving off by default)
 - `NSI.MedianScore`
 - `NSI.NetworkAssignment.LambdaXX.*` (advanced)
 - `MoransI.mI`

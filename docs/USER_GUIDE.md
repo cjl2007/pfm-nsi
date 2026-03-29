@@ -13,7 +13,9 @@ Optional metrics:
 - Moran's I
 - Spectral slope
 - Usability projection (`P(PFM-usable | NSI)`) (enabled by default in Python CLI `run`)
+  Uses median NSI (`R^2`, λ=10) as the default summary statistic across Python run/batch and MATLAB.
 - Reliability projection (`P(R >= threshold | NSI, time)`)
+  If NSI is outside training range for the selected early model, results are labeled as extrapolated outside training range.
 
 Advanced options:
 

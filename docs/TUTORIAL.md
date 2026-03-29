@@ -2,7 +2,7 @@
 
 ## Workflow 1: "Is this dataset usable for PFM?"
 
-Run NSI + usability model:
+Run NSI + usability model (default usability summary statistic: median NSI at λ=10):
 
 ```bash
 pfm-nsi run \
@@ -34,6 +34,8 @@ Inspect:
 
 - `pfm_nsi_reliability.json`
 - reliability plot PNG (if figure saving enabled)
+
+If the scout NSI is outside model training range, both JSON and plot title are labeled as extrapolated outside training range.
 
 ## Workflow 3: "Evaluate only an ROI (advanced)"
 

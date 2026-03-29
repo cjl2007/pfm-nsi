@@ -4,6 +4,11 @@ import json
 import os
 import gzip
 from pathlib import Path
+
+try:
+    from importlib import metadata as importlib_metadata
+except Exception:  # pragma: no cover
+    importlib_metadata = None
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -12,6 +17,8 @@ from .core import pfm_nsi
 from .mesh import prepare_cifti_for_mesh
 from .plots import pfm_nsi_plots, plot_nsi_usability_distribution
 from .reliability import conditional_reliability_from_nsi, load_nsi_reliability_model
+
+USABILITY_SUMMARY_STAT = "median"
 
 
 def _parse_list(s: Optional[str], cast=float) -> Optional[List]:
@@ -125,6 +132,71 @@ def _save_nsi_summary_json(outdir: str, prefix: str, qc: dict) -> str:
     return path
 
 
+def _compute_usability_summary_nsi_from_qc(qc: dict, statistic: str = USABILITY_SUMMARY_STAT) -> float:
+    r2 = np.asarray(qc["NSI"]["Ridge"]["Lambda10"]["R2"], dtype=float).ravel()
+    if statistic == "median":
+        return float(np.nanmedian(r2))
+    if statistic == "mean":
+        return float(np.nanmean(r2))
+    raise ValueError(f"Unsupported usability summary statistic: {statistic}")
+
+
+def _package_version() -> str:
+    if importlib_metadata is None:
+        return "unknown"
+    try:
+        return importlib_metadata.version("pfm-nsi")
+    except Exception:
+        return "unknown"
+
+
+def _save_usability_json(
+    outdir: str,
+    prefix: str,
+    args: argparse.Namespace,
+    qc: dict,
+    plot_summary: dict,
+    usability_model: dict,
+    model_path: str,
+) -> Optional[str]:
+    usability = plot_summary.get("usability", {})
+    if not usability:
+        return None
+
+    payload = {
+        "subject_id": _subject_id_from_cifti_path(args.cifti, 1),
+        "input_path": os.path.abspath(args.cifti),
+        "summary_statistic": str(usability.get("summary_statistic", USABILITY_SUMMARY_STAT)),
+        "summary_nsi": float(usability.get("summary_nsi", float("nan"))),
+        "p_hat": float(usability.get("p_hat", float("nan"))),
+        "ci95": usability.get("ci95", [float("nan"), float("nan")]),
+        "decision": usability.get("decision", ""),
+        "model": {
+            "path": os.path.abspath(model_path),
+            "form": str(np.asarray(usability_model.get("model", {}).get("form", "")).squeeze()),
+            "beta": np.asarray(usability_model.get("model", {}).get("beta", []), dtype=float).reshape(-1).tolist(),
+            "muNSI": float(np.asarray(usability_model.get("model", {}).get("muNSI", float("nan"))).squeeze()),
+            "thresholds": usability.get("thresholds", usability_model.get("thresholds", {})),
+            "expert_judgement_j": usability.get("expert_judgement_j", {}),
+        },
+        "nsi": {
+            "median_nsi": float(qc["NSI"]["MedianScore"]),
+            "mean_nsi": _compute_usability_summary_nsi_from_qc(qc, statistic="mean"),
+            "usability_summary_nsi": _compute_usability_summary_nsi_from_qc(qc, statistic=USABILITY_SUMMARY_STAT),
+            "lambda": 10,
+        },
+        "software": {
+            "package": "pfm-nsi",
+            "version": _package_version(),
+        },
+    }
+
+    path = os.path.join(outdir, f"{prefix}_usability.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    return path
+
+
 def _build_opts(args: argparse.Namespace) -> Dict[str, Any]:
     ridge_lambdas = _parse_list(args.ridge_lambdas, cast=float) or [10]
     lowmem = not bool(getattr(args, "fullmem", False))
@@ -134,7 +206,8 @@ def _build_opts(args: argparse.Namespace) -> Dict[str, Any]:
         "ridge_lambdas": ridge_lambdas,
         "lowmem": lowmem,
         "use_float32": str(getattr(args, "dtype", "float32")).lower() == "float32",
-        "block_size": int(getattr(args, "block_size", 512)),
+        "block_size": int(getattr(args, "block_size", 2048)),
+        "keep_allrho": bool(getattr(args, "keep_allrho", False)),
         "keep_betas": bool(getattr(args, "keep_betas", False)),
         "keep_fc_map": bool(getattr(args, "keep_fc_map", False)),
         "compute_network_histograms": bool(getattr(args, "network_hists", False)),
@@ -208,17 +281,20 @@ def run(args: argparse.Namespace) -> int:
     qc_for_reliability = qc
 
     usability_model = None
+    usability_model_path = None
     if args.usability:
-        path = _resolve_model_path(args.models_dir, "nsi_usability_model.json.gz", args.usability_model)
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Usability model not found: {path}")
-        usability_model = _load_usability_model(path)
+        usability_model_path = _resolve_model_path(
+            args.models_dir, "nsi_usability_model.json.gz", args.usability_model
+        )
+        if not os.path.exists(usability_model_path):
+            raise FileNotFoundError(f"Usability model not found: {usability_model_path}")
+        usability_model = _load_usability_model(usability_model_path)
 
     save_figs = not args.no_save_figs
     show_plots = save_figs
     prefix = args.prefix
 
-    pfm_nsi_plots(
+    plot_summary = pfm_nsi_plots(
         qc,
         usability_mdl=usability_model,
         show_plots=show_plots,
@@ -233,6 +309,16 @@ def run(args: argparse.Namespace) -> int:
 
     _save_npz(args.outdir, prefix, qc)
     _save_nsi_summary_json(args.outdir, prefix, qc)
+    if args.usability and usability_model is not None and usability_model_path is not None:
+        _save_usability_json(
+            args.outdir,
+            prefix,
+            args,
+            qc,
+            plot_summary,
+            usability_model,
+            usability_model_path,
+        )
 
     if args.network_hists:
         ridge_tag = f"Lambda{float(args.network_assignment_lambda):g}"
@@ -354,7 +440,7 @@ def batch(args: argparse.Namespace) -> int:
                 wb_command=getattr(args, "wb_command", None),
             )
             qc, _ = pfm_nsi(prepared_c, structures, args.priors, opts)
-            nsi = float(qc["NSI"]["MedianScore"])
+            nsi = _compute_usability_summary_nsi_from_qc(qc, statistic=USABILITY_SUMMARY_STAT)
             sid = _subject_id_from_cifti_path(cifti_path, i)
             nsi_values.append(nsi)
             rows.append(
@@ -429,6 +515,7 @@ def batch(args: argparse.Namespace) -> int:
                 "input_mode": use_input,
                 "n_samples": len(rows),
                 "mean_p_hat": float(dist["mean_p_hat"]),
+                "summary_statistic": USABILITY_SUMMARY_STAT,
                 "distribution_summary": dist["summary"],
                 "rows": rows,
             },
@@ -463,7 +550,7 @@ def build_parser() -> argparse.ArgumentParser:
         "Notes:\n"
         "  - `run` computes NSI for one subject and writes subject-level outputs/figures.\n"
         "  - `batch` computes usability across many NSI values or CIFTIs and writes distribution outputs.\n"
-        "  - Usability projection is enabled by default for `run`; reliability is opt-in via --reliability.\n"
+        "  - Usability projection is enabled by default for `run` and uses median NSI (λ=10); reliability is opt-in via --reliability.\n"
         "  - Moran's I and spectral slope are advanced metrics (opt-in).\n"
     )
     p = argparse.ArgumentParser(
@@ -504,9 +591,15 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=run_epilog,
         formatter_class=argparse.RawTextHelpFormatter,
     )
+    run_io = run_p.add_argument_group("Input/Output")
+    run_usability = run_p.add_argument_group("Usability Mode")
+    run_reliability = run_p.add_argument_group("Reliability Mode")
+    run_plot = run_p.add_argument_group("Plotting/Reporting")
+    run_perf = run_p.add_argument_group("Performance/Runtime")
+
     default_priors = os.path.join(os.path.dirname(__file__), "models", "priors.npz")
-    run_p.add_argument("--cifti", required=True, help="Input CIFTI dtseries file (.dtseries.nii)")
-    run_p.add_argument(
+    run_io.add_argument("--cifti", required=True, help="Input CIFTI dtseries file (.dtseries.nii)")
+    run_io.add_argument(
         "--fsaverage6",
         dest="mesh",
         action="store_const",
@@ -514,71 +607,71 @@ def build_parser() -> argparse.ArgumentParser:
         default="fslr32k",
         help="Treat the input cortical mesh as fsaverage6 and resample to packaged fsLR-32k resources via wb_command",
     )
-    run_p.add_argument(
+    run_io.add_argument(
         "--fslr32k",
         dest="mesh",
         action="store_const",
         const="fslr32k",
         help="Treat the input cortical mesh as fsLR-32k (default)",
     )
-    run_p.add_argument(
+    run_io.add_argument(
         "--wb-command",
         default=None,
         help="Optional explicit path to Connectome Workbench wb_command (used only with --fsaverage6)",
     )
-    run_p.add_argument(
+    run_io.add_argument(
         "--priors",
         default=default_priors,
         help="Priors file path (default: packaged pfm_nsi/models/priors.npz)",
     )
 
-    run_p.add_argument(
+    run_io.add_argument(
         "--models-dir",
         default="models",
         help="Model directory override (searched before packaged defaults)",
     )
-    run_p.add_argument(
+    run_usability.add_argument(
         "--usability-model",
         default=None,
         help="Usability model path (default lookup: models/nsi_usability_model.json.gz)",
     )
-    run_p.add_argument(
+    run_reliability.add_argument(
         "--reliability-model",
         default=None,
         help="Reliability model path (default lookup: models/nsi_reliability_model.json.gz)",
     )
 
-    run_p.add_argument("--outdir", default="pfm_nsi_out", help="Output directory (default: pfm_nsi_out)")
-    run_p.add_argument("--prefix", default="pfm_nsi", help="Output filename prefix (default: pfm_nsi)")
-    run_p.add_argument("--dpi", type=int, default=150, help="Saved figure DPI (default: 150)")
-    run_p.add_argument("--no-save-figs", action="store_true", help="Disable figure saving")
+    run_io.add_argument("--outdir", default="pfm_nsi_out", help="Output directory (default: pfm_nsi_out)")
+    run_io.add_argument("--prefix", default="pfm_nsi", help="Output filename prefix (default: pfm_nsi)")
+    run_plot.add_argument("--dpi", type=int, default=150, help="Saved figure DPI (default: 150)")
+    run_plot.add_argument("--no-save-figs", action="store_true", help="Disable figure saving")
 
-    run_p.add_argument(
+    run_usability.add_argument(
         "--usability",
         dest="usability",
         action="store_true",
         default=True,
-        help="Enable NSI usability projection and usability curve (default: enabled)",
+        help="Enable NSI usability projection and usability curve (default: enabled; uses median NSI at λ=10)",
     )
-    run_p.add_argument(
+    run_usability.add_argument(
         "--no-usability",
         dest="usability",
         action="store_false",
         help="Disable NSI usability projection and usability curve",
     )
-    run_p.add_argument(
+    run_reliability.add_argument(
         "--reliability",
         action="store_true",
         help="Enable reliability projection from NSI",
     )
 
-    run_p.add_argument(
+    run_reliability.add_argument(
         "--nsi-t",
         type=float,
         default=10,
         help="Early window (minutes) used for NSI in reliability projection (default: 10)",
     )
-    run_p.add_argument(
+    run_reliability.add_argument(
         "--tr",
         type=float,
         default=None,
@@ -587,81 +680,81 @@ def build_parser() -> argparse.ArgumentParser:
             "first round(nsi_t*60/TR) timepoints before reliability projection."
         ),
     )
-    run_p.add_argument(
+    run_reliability.add_argument(
         "--query-t",
         default=None,
         help="Reliability query duration(s), comma-separated minutes (default: 60)",
     )
-    run_p.add_argument(
+    run_reliability.add_argument(
         "--thresholds",
         default=None,
         help="Reliability thresholds, comma-separated (default: 0.6,0.7,0.8)",
     )
 
-    run_p.add_argument("--morans", action="store_true", help="Advanced: compute Moran's I")
-    run_p.add_argument("--slope", action="store_true", help="Advanced: compute spectral slope")
-    run_p.add_argument("--fullmem", action="store_true", help="Disable low-memory mode")
-    run_p.add_argument("--dtype", choices=["float32", "float64"], default="float32", help="Computation dtype (default: float32)")
-    run_p.add_argument("--block-size", type=int, default=512, help="Target block size for sparse-target processing")
-    run_p.add_argument("--keep-allrho", action="store_true", help="Deprecated no-op (univariate NSI removed)")
-    run_p.add_argument("--keep-betas", action="store_true", help="Retain ridge beta maps in outputs")
-    run_p.add_argument("--keep-fc-map", action="store_true", help="Retain FC map output in memory/output object")
-    run_p.add_argument("--slope-kmax", type=int, default=None, help="Advanced slope option: kmax")
-    run_p.add_argument("--slope-low-skip", type=int, default=None, help="Advanced slope option: low-skip")
-    run_p.add_argument("--slope-high-frac", type=float, default=None, help="Advanced slope option: high-frac")
+    run_perf.add_argument("--morans", action="store_true", help="Advanced: compute Moran's I")
+    run_perf.add_argument("--slope", action="store_true", help="Advanced: compute spectral slope")
+    run_perf.add_argument("--fullmem", action="store_true", help="Disable low-memory mode")
+    run_perf.add_argument("--dtype", choices=["float32", "float64"], default="float32", help="Computation dtype (default: float32)")
+    run_perf.add_argument("--block-size", type=int, default=2048, help="Target block size for sparse-target processing")
+    run_perf.add_argument("--keep-allrho", action="store_true", help="Retain full univariate rho matrix in outputs")
+    run_perf.add_argument("--keep-betas", action="store_true", help="Retain ridge beta maps in outputs")
+    run_perf.add_argument("--keep-fc-map", action="store_true", help="Retain FC map output in memory/output object")
+    run_perf.add_argument("--slope-kmax", type=int, default=None, help="Advanced slope option: kmax")
+    run_perf.add_argument("--slope-low-skip", type=int, default=None, help="Advanced slope option: low-skip")
+    run_perf.add_argument("--slope-high-frac", type=float, default=None, help="Advanced slope option: high-frac")
 
-    run_p.add_argument("--sparse-frac", type=float, default=None, help="Optional sparse target fraction (0,1]")
-    run_p.add_argument(
+    run_perf.add_argument("--sparse-frac", type=float, default=None, help="Optional sparse target fraction (0,1]")
+    run_perf.add_argument(
         "--roi-binary",
         default=None,
         help="Advanced: binary ROI (mask or index file) used as sparse targets; overrides structures/subsampling",
     )
-    run_p.add_argument(
+    run_perf.add_argument(
         "--roi-threshold",
         type=float,
         default=0.5,
         help="Advanced: threshold applied when --roi-binary provides mask values (default: 0.5)",
     )
-    run_p.add_argument(
+    run_plot.add_argument(
         "--network-hists",
         dest="network_hists",
         action="store_true",
         default=True,
         help="Advanced: output per-network NSI histograms using ridge-beta network assignment (default: enabled)",
     )
-    run_p.add_argument(
+    run_plot.add_argument(
         "--no-network-hists",
         dest="network_hists",
         action="store_false",
         help="Disable per-network NSI histogram outputs",
     )
-    run_p.add_argument(
+    run_plot.add_argument(
         "--network-assignment-lambda",
         type=float,
         default=10.0,
         help="Ridge lambda used for beta-based network assignment (default: 10)",
     )
-    run_p.add_argument(
+    run_plot.add_argument(
         "--structure-hists",
         dest="structure_hists",
         action="store_true",
         default=True,
         help="Advanced: output stacked NSI histograms by LH/RH-collapsed brain structure (default: enabled)",
     )
-    run_p.add_argument(
+    run_plot.add_argument(
         "--no-structure-hists",
         dest="structure_hists",
         action="store_false",
         help="Disable per-structure NSI histogram outputs",
     )
-    run_p.add_argument(
+    run_plot.add_argument(
         "--structure-assignment-lambda",
         type=float,
         default=10.0,
         help="Ridge lambda used for structure-hist NSI values (default: 10)",
     )
-    run_p.add_argument("--ridge-lambdas", default=None, help="Ridge lambdas, comma-separated (default: 10)")
-    run_p.add_argument(
+    run_perf.add_argument("--ridge-lambdas", default=None, help="Ridge lambdas, comma-separated (default: 10)")
+    run_perf.add_argument(
         "--structures",
         default=None,
         help="Comma-separated brain structures to include (default: standard bilateral set)",
@@ -685,39 +778,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run usability batch mode over NSI values or multiple CIFTIs",
         description=(
             "Batch mode computes P(PFM-usable|NSI) across a set of NSI values.\n"
-            "Inputs can be direct NSI values or CIFTI paths (one NSI computed per file).\n"
+            "Inputs can be direct NSI values or CIFTI paths (one median NSI at λ=10 computed per file).\n"
             "Outputs include batch CSV/JSON summaries and a usability distribution plot."
         ),
         epilog=batch_epilog,
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    batch_p.add_argument(
+    batch_io = batch_p.add_argument_group("Input/Output")
+    batch_usability = batch_p.add_argument_group("Usability Mode")
+    batch_plot = batch_p.add_argument_group("Plotting/Reporting")
+    batch_perf = batch_p.add_argument_group("Performance/Runtime")
+
+    batch_io.add_argument(
         "--batch-input",
         choices=["nsi-values", "nsi-values-file", "cifti-list", "cifti-list-file"],
         default="nsi-values",
         help="Batch input type (default: nsi-values)",
     )
-    batch_p.add_argument(
+    batch_io.add_argument(
         "--nsi-values",
         default=None,
         help="Comma-separated NSI values (used when --batch-input nsi-values)",
     )
-    batch_p.add_argument(
+    batch_io.add_argument(
         "--nsi-values-file",
         default=None,
         help="Path to file containing NSI values (newline or comma separated)",
     )
-    batch_p.add_argument(
+    batch_io.add_argument(
         "--cifti-list",
         default=None,
         help="Comma-separated CIFTI dtseries paths (used when --batch-input cifti-list)",
     )
-    batch_p.add_argument(
+    batch_io.add_argument(
         "--cifti-list-file",
         default=None,
         help="Path to file containing CIFTI paths (newline or comma separated)",
     )
-    batch_p.add_argument(
+    batch_io.add_argument(
         "--fsaverage6",
         dest="mesh",
         action="store_const",
@@ -725,84 +823,84 @@ def build_parser() -> argparse.ArgumentParser:
         default="fslr32k",
         help="Treat input cortical meshes as fsaverage6 and resample to packaged fsLR-32k resources via wb_command",
     )
-    batch_p.add_argument(
+    batch_io.add_argument(
         "--fslr32k",
         dest="mesh",
         action="store_const",
         const="fslr32k",
         help="Treat input cortical meshes as fsLR-32k (default)",
     )
-    batch_p.add_argument(
+    batch_io.add_argument(
         "--wb-command",
         default=None,
         help="Optional explicit path to Connectome Workbench wb_command (used only with --fsaverage6)",
     )
-    batch_p.add_argument(
+    batch_io.add_argument(
         "--priors",
         default=default_priors,
         help="Priors file path (required when batch input is CIFTI paths)",
     )
-    batch_p.add_argument(
+    batch_io.add_argument(
         "--models-dir",
         default="models",
         help="Model directory override (searched before packaged defaults)",
     )
-    batch_p.add_argument(
+    batch_usability.add_argument(
         "--usability-model",
         default=None,
         help="Usability model path (default lookup: models/nsi_usability_model.json.gz)",
     )
-    batch_p.add_argument("--outdir", default="pfm_nsi_out", help="Output directory (default: pfm_nsi_out)")
-    batch_p.add_argument("--prefix", default="pfm_nsi", help="Output filename prefix (default: pfm_nsi)")
-    batch_p.add_argument("--dpi", type=int, default=150, help="Saved figure DPI (default: 150)")
-    batch_p.add_argument("--no-save-figs", action="store_true", help="Disable figure saving")
-    batch_p.add_argument("--morans", action="store_true", help="CIFTI mode only: compute Moran's I")
-    batch_p.add_argument("--slope", action="store_true", help="CIFTI mode only: compute spectral slope")
-    batch_p.add_argument("--fullmem", action="store_true", help="Disable low-memory mode")
-    batch_p.add_argument("--dtype", choices=["float32", "float64"], default="float32", help="Computation dtype (default: float32)")
-    batch_p.add_argument("--block-size", type=int, default=512, help="Target block size for sparse-target processing")
-    batch_p.add_argument("--keep-allrho", action="store_true", help="Deprecated no-op (univariate NSI removed)")
-    batch_p.add_argument("--keep-betas", action="store_true", help="Retain ridge beta maps in outputs")
-    batch_p.add_argument("--keep-fc-map", action="store_true", help="Retain FC map output in memory/output object")
-    batch_p.add_argument("--slope-kmax", type=int, default=None, help="Advanced slope option: kmax")
-    batch_p.add_argument("--slope-low-skip", type=int, default=None, help="Advanced slope option: low-skip")
-    batch_p.add_argument("--slope-high-frac", type=float, default=None, help="Advanced slope option: high-frac")
-    batch_p.add_argument("--sparse-frac", type=float, default=None, help="Optional sparse target fraction (0,1]")
-    batch_p.add_argument(
+    batch_io.add_argument("--outdir", default="pfm_nsi_out", help="Output directory (default: pfm_nsi_out)")
+    batch_io.add_argument("--prefix", default="pfm_nsi", help="Output filename prefix (default: pfm_nsi)")
+    batch_plot.add_argument("--dpi", type=int, default=150, help="Saved figure DPI (default: 150)")
+    batch_plot.add_argument("--no-save-figs", action="store_true", help="Disable figure saving")
+    batch_perf.add_argument("--morans", action="store_true", help="CIFTI mode only: compute Moran's I")
+    batch_perf.add_argument("--slope", action="store_true", help="CIFTI mode only: compute spectral slope")
+    batch_perf.add_argument("--fullmem", action="store_true", help="Disable low-memory mode")
+    batch_perf.add_argument("--dtype", choices=["float32", "float64"], default="float32", help="Computation dtype (default: float32)")
+    batch_perf.add_argument("--block-size", type=int, default=2048, help="Target block size for sparse-target processing")
+    batch_perf.add_argument("--keep-allrho", action="store_true", help="Retain full univariate rho matrix in outputs")
+    batch_perf.add_argument("--keep-betas", action="store_true", help="Retain ridge beta maps in outputs")
+    batch_perf.add_argument("--keep-fc-map", action="store_true", help="Retain FC map output in memory/output object")
+    batch_perf.add_argument("--slope-kmax", type=int, default=None, help="Advanced slope option: kmax")
+    batch_perf.add_argument("--slope-low-skip", type=int, default=None, help="Advanced slope option: low-skip")
+    batch_perf.add_argument("--slope-high-frac", type=float, default=None, help="Advanced slope option: high-frac")
+    batch_perf.add_argument("--sparse-frac", type=float, default=None, help="Optional sparse target fraction (0,1]")
+    batch_perf.add_argument(
         "--roi-binary",
         default=None,
         help="Advanced CIFTI mode only: binary ROI (mask or index file) used as sparse targets",
     )
-    batch_p.add_argument(
+    batch_perf.add_argument(
         "--roi-threshold",
         type=float,
         default=0.5,
         help="Advanced CIFTI mode only: threshold applied when --roi-binary provides mask values",
     )
-    batch_p.add_argument(
+    batch_plot.add_argument(
         "--network-hists",
         action="store_true",
         help="Advanced CIFTI mode only: compute per-network NSI histogram metadata",
     )
-    batch_p.add_argument(
+    batch_plot.add_argument(
         "--network-assignment-lambda",
         type=float,
         default=10.0,
         help="CIFTI mode only: ridge lambda used for beta-based network assignment (default: 10)",
     )
-    batch_p.add_argument(
+    batch_plot.add_argument(
         "--structure-hists",
         action="store_true",
         help="Advanced CIFTI mode only: compute stacked NSI histograms by LH/RH-collapsed structure",
     )
-    batch_p.add_argument(
+    batch_plot.add_argument(
         "--structure-assignment-lambda",
         type=float,
         default=10.0,
         help="CIFTI mode only: ridge lambda used for structure-hist NSI values (default: 10)",
     )
-    batch_p.add_argument("--ridge-lambdas", default=None, help="Ridge lambdas, comma-separated (default: 10)")
-    batch_p.add_argument(
+    batch_perf.add_argument("--ridge-lambdas", default=None, help="Ridge lambdas, comma-separated (default: 10)")
+    batch_perf.add_argument(
         "--structures",
         default=None,
         help="Comma-separated brain structures to include (CIFTI mode only)",

@@ -58,7 +58,8 @@ def pfm_nsi_plots(
     )
 
     if has_usability:
-        nsi_use = np.nanmean(nsi_r2)
+        summary_statistic = "median"
+        nsi_use = float(np.nanmedian(nsi_r2))
         p_hat = float(_local_predict_binom_logit(usability_mdl["model"], nsi_use))
         grid = usability_mdl["grid"]
         xgrid = np.asarray(grid["x"]).reshape(-1)
@@ -77,6 +78,9 @@ def pfm_nsi_plots(
             label = "Very low (0.0-0.2)"
 
         out["usability"] = {
+            "summary_statistic": summary_statistic,
+            "summary_nsi": nsi_use,
+            "NSI_median": nsi_use,
             "NSI_mean": nsi_use,
             "p_hat": p_hat,
             "ci95": [ci_lo, ci_hi],
@@ -87,7 +91,7 @@ def pfm_nsi_plots(
 
         print("\n=== Prospective PFM usability projection ===\n")
         print("Dataset summary")
-        print(f"  Mean NSI (R^2, λ={headline_lambda}):        {nsi_use:.3f}\n")
+        print(f"  Summary NSI ({summary_statistic}, R^2, λ={headline_lambda}): {nsi_use:.3f}\n")
         print("Predicted usability (from trained NSI model)")
         print(f"  P(PFM-usable | NSI):         {p_hat:.2f}")
         print(f"  95% confidence interval:     [{ci_lo:.2f}, {ci_hi:.2f}]")

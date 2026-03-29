@@ -12,6 +12,7 @@ Both implementations compute the same core outputs:
 - NSI (ridge-based)
 - Usability projection (enabled by default in Python CLI `run`)
 - Optional reliability projection (opt-in via `--reliability`)
+- Usability projection uses median NSI (`R^2`, λ=10) across Python run/batch and MATLAB
 - Optional contextual metrics (Moran's I, spectral slope)
 - Advanced binary ROI sparse-target override
 - Per-network NSI histograms (enabled by default in Python CLI `run`)
@@ -135,6 +136,7 @@ Python `run` writes:
 
 - `<prefix>_nsi.npz`
 - `<prefix>_hist_nsi.png`
+- `<prefix>_usability.json` (when usability is enabled)
 - `<prefix>_hist_nsi_by_network.png` (default in `run`; disable with `--no-network-hists`)
 - `<prefix>_network_hist_summary.csv/.json` (default in `run`)
 - `<prefix>_hist_nsi_by_structure.png` (default in `run`; disable with `--no-structure-hists`)
@@ -150,3 +152,5 @@ Preprint: https://www.biorxiv.org/content/10.64898/2026.02.10.704857v1
 ## License
 
 MIT
+
+Reliability note: when NSI is outside the model training range, outputs/plot titles are explicitly flagged as extrapolated outside training range.

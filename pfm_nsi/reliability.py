@@ -136,14 +136,25 @@ def conditional_reliability_from_nsi(
     flags: Dict[str, Any] = {}
     flags["NSI_out_of_range"] = False
     flags["NSI_range"] = [float("nan"), float("nan")]
+    flags["in_training_range"] = True
+    flags["extrapolation_status"] = "in_training_range"
+    flags["extrapolation_note"] = "NSI is within training range for selected EARLY_MIN model."
     if "NSI_range" in early_mdl and np.all(np.isfinite(np.asarray(early_mdl["NSI_range"]).ravel())):
         nsi_range = np.asarray(early_mdl["NSI_range"]).ravel()
         flags["NSI_range"] = [float(nsi_range[0]), float(nsi_range[1])]
         flags["NSI_out_of_range"] = (nsi_qc < nsi_range[0]) or (nsi_qc > nsi_range[1])
+        flags["in_training_range"] = not bool(flags["NSI_out_of_range"])
+        if flags["NSI_out_of_range"]:
+            flags["extrapolation_status"] = "outside_training_range"
+            flags["extrapolation_note"] = (
+                "Deterministic and probabilistic estimates are extrapolated outside model support "
+                "and should not be interpreted as in-range performance."
+            )
         if verbose and flags["NSI_out_of_range"]:
             print(
                 f"WARNING: NSI={nsi_qc:.3f} outside training range [{nsi_range[0]:.3f}, {nsi_range[1]:.3f}] for EARLY_MIN={int(early_mdl['EARLY_MIN'])}. Extrapolating."
             )
+            print("WARNING: Reported reliability estimates are outside-training-range extrapolations, not in-range model performance.")
 
     backward_mask = t_query < float(early_mdl["EARLY_MIN"])
     flags["backward_query_mask"] = backward_mask
@@ -217,6 +228,12 @@ def conditional_reliability_from_nsi(
         "Rmax_hat": rmax_hat,
     }
     out["flags"] = flags
+    out["extrapolation"] = {
+        "status": flags["extrapolation_status"],
+        "in_training_range": bool(flags["in_training_range"]),
+        "note": flags["extrapolation_note"],
+        "nsi_range": flags["NSI_range"],
+    }
     out["deterministic"] = {
         "T_QUERY": t_query,
         "k_hat": k_hat,
@@ -228,6 +245,7 @@ def conditional_reliability_from_nsi(
         "Rmax_CI95": rmax_ci95,
         "R_CI95": r_ci95,
         "CI_Nmc": nmc,
+        "is_extrapolated": bool(flags["NSI_out_of_range"]),
     }
 
     # Probabilistic
@@ -333,8 +351,11 @@ def conditional_reliability_from_nsi(
 
                 tt_plot = int(np.argmin(np.abs(t_query - tq_plot)))
                 rhat_plot = out["deterministic"]["R_hat"][tt_plot]
+                status_txt = "IN-RANGE"
+                if flags["NSI_out_of_range"]:
+                    status_txt = "EXTRAPOLATED: OUTSIDE TRAINING RANGE"
                 plt.title(
-                    f"NSI={nsi_qc:.3f} | Deterministic R̂({tq_plot:.0f})={rhat_plot:.3f}",
+                    f"NSI={nsi_qc:.3f} | Deterministic R̂({tq_plot:.0f})={rhat_plot:.3f} [{status_txt}]",
                     fontweight="normal",
                 )
                 if save_dir:

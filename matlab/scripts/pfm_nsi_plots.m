@@ -41,7 +41,7 @@ OUT.data = struct('NSI_r2', NSI_r2, 'MI', MI, 'Slope', Slope);
 OUT.figure_paths = struct();
 
 if local_has_usability_model(UsabilityMdl)
-    NSI_use = nanmean(NSI_r2);
+    NSI_use = nanmedian(NSI_r2);
     p_hat = local_predict_binom_logit(UsabilityMdl.model, NSI_use);
     p_lo = interp1(UsabilityMdl.grid.x, UsabilityMdl.grid.ciLo, NSI_use, 'linear', 'extrap');
     p_hi = interp1(UsabilityMdl.grid.x, UsabilityMdl.grid.ciHi, NSI_use, 'linear', 'extrap');
@@ -59,6 +59,9 @@ if local_has_usability_model(UsabilityMdl)
     end
 
     OUT.usability = struct();
+    OUT.usability.summary_statistic = 'median';
+    OUT.usability.summary_nsi = NSI_use;
+    OUT.usability.NSI_median = NSI_use;
     OUT.usability.NSI_mean = NSI_use;
     OUT.usability.p_hat = p_hat;
     OUT.usability.ci95 = [p_lo p_hi];
@@ -68,7 +71,7 @@ if local_has_usability_model(UsabilityMdl)
 
     fprintf('\n=== Prospective PFM usability projection ===\n\n');
     fprintf('Dataset summary\n');
-    fprintf('  Mean NSI (R^2, λ=%d):        %.3f\n\n', headline_lambda, NSI_use);
+    fprintf('  Summary NSI (median, R^2, λ=%d): %.3f\n\n', headline_lambda, NSI_use);
     fprintf('Predicted usability (from trained NSI model)\n');
     fprintf('  P(PFM-usable | NSI):         %.2f\n', p_hat);
     fprintf('  95%% confidence interval:     [%.2f, %.2f]\n', p_lo, p_hi);

@@ -408,14 +408,18 @@ if DO_PLOT
 
         if isfield(query_mdl,'prob_models') && ~isempty(query_mdl.prob_models)
 
-            FIG_W = 5.3; FIG_H = 2.9; FS = 10;
+            FIG_W = 5.6; FIG_H = 3.1; FS = 10;
             cols = [0.75 0.75 0.75; 0.50 0.50 0.50; 0.20 0.20 0.20];
             lineStyles = {'-','--','-.'};
+            red = [0.70 0.00 0.00];
 
             figure('Color','w','Units','inches','Position',[1 1 FIG_W FIG_H]);
-            hold on;
+            ax = gca;
+            hold(ax,'on');
+            yyaxis(ax,'left');
 
             xline(NSI_qc,'-','Color',[0.75 0 0],'LineWidth',1.4);
+            curveHandles = gobjects(1, min(numel(R_THRESH),3));
 
             for i = 1:min(numel(R_THRESH),3)  % plotting supports up to 3 cleanly
 
@@ -438,18 +442,20 @@ if DO_PLOT
                     'FaceAlpha',0.10, 'EdgeColor','none');
 
                 % Median curve
-                plot(x, P_med, ...
+                curveHandles(i) = plot(x, P_med, ...
                     'Color', cols(i,:)*0.6, ...
                     'LineStyle', lineStyles{i}, ...
-                    'LineWidth',2.2);
-
-                % Dataset marker at the median curve
-                scatter(NSI_qc, interp1(x, P_med, NSI_qc, 'linear','extrap'), ...
-                    28, 'k','filled', 'MarkerEdgeColor','w', 'LineWidth',0.8);
+                    'LineWidth',2.2, ...
+                    'DisplayName', sprintf('P(R^2 >= %.2f)', R0));
             end
 
-            ylim([0 1]); box off
-            set(gca,'TickDir','out','Position',[0.12 0.20 0.82 0.72]);
+            ylim([0 1]);
+            box off
+            ax.TickDir = 'out';
+            ax.FontName = 'Arial';
+            ax.FontSize = FS - 1;
+            ax.Position = [0.12 0.16 0.76 0.74];
+            ax.YColor = [0 0 0];
 
             xlabel(sprintf('NSI (%d min)', OUT.model.EARLY_MIN_used));
             ylabel(sprintf('P(R^2 \\ge threshold at %d min)', query_mdl.T_QUERY));
@@ -457,9 +463,39 @@ if DO_PLOT
             % Deterministic point for the plotted time (use the closest index)
             [~, tt_plot] = min(abs(T_QUERY - tq_plot));
             Rhat_plot = OUT.deterministic.R_hat(tt_plot);
+            status_txt = '';
+            if isfield(flags,'NSI_out_of_range') && flags.NSI_out_of_range
+                status_txt = local_format_extrapolation_status(NSI_qc, flags.NSI_range);
+            end
 
-            title(sprintf('NSI=%.3f | Deterministic R̂(%.0f)=%.3f', NSI_qc, tq_plot, Rhat_plot), ...
-                'FontWeight','normal');
+            yyaxis(ax,'right');
+            ylim([0 1]);
+            ax.YColor = red;
+            ax.FontSize = FS - 1;
+            ax.TickDir = 'out';
+            ylabel(sprintf('Deterministic R^2 at %d min', query_mdl.T_QUERY), ...
+                'Color', red, 'FontSize', FS);
+            hDet = scatter(NSI_qc, Rhat_plot, ...
+                38, red, 'd', 'filled', 'MarkerEdgeColor', 'w', 'LineWidth', 0.8, ...
+                'DisplayName', sprintf('Deterministic R^2(%.0f)', tq_plot));
+
+            yyaxis(ax,'left');
+            if ~isempty(status_txt)
+                text(0.02, 0.97, status_txt, ...
+                    'Units','normalized', ...
+                    'HorizontalAlignment','left', ...
+                    'VerticalAlignment','top', ...
+                    'FontSize', FS - 1, ...
+                    'Color', red, ...
+                    'BackgroundColor', [1.00 0.96 0.96], ...
+                    'Margin', 2);
+            end
+
+            title(sprintf('NSI=%.3f | Deterministic R^2(%.0f)=%.3f', NSI_qc, tq_plot, Rhat_plot), ...
+                'FontWeight','normal', 'FontSize', FS + 0.5);
+
+            keep = isgraphics(curveHandles);
+            legend([curveHandles(keep) hDet], 'Location', 'southeast', 'Box', 'off', 'FontSize', 8);
 
             set(findall(gcf,'-property','FontName'),'FontName','Arial');
             set(findall(gcf,'-property','FontSize'),'FontSize',FS);
@@ -515,4 +551,18 @@ catch
     mu = NaN; se = NaN; ci95 = [NaN NaN];
 end
 
+end
+
+function status_txt = local_format_extrapolation_status(NSI_qc, NSI_range)
+status_txt = 'EXTRAPOLATED: OUTSIDE TRAINING RANGE';
+if numel(NSI_range) < 2 || any(~isfinite(NSI_range))
+    return;
+end
+lo = NSI_range(1);
+hi = NSI_range(2);
+if NSI_qc < lo
+    status_txt = sprintf('EXTRAPOLATED BELOW TRAINING RANGE [%.3f, %.3f]', lo, hi);
+elseif NSI_qc > hi
+    status_txt = sprintf('EXTRAPOLATED ABOVE TRAINING RANGE [%.3f, %.3f]', lo, hi);
+end
 end

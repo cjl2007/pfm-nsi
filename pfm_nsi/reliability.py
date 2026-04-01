@@ -103,6 +103,18 @@ def _predict_glm_prob(mdl: Dict[str, Any], nsi: float) -> float:
     return p
 
 
+def _format_extrapolation_status(nsi_qc: float, nsi_range: Sequence[float]) -> str:
+    lo = float(nsi_range[0])
+    hi = float(nsi_range[1])
+    if not np.all(np.isfinite(np.asarray([lo, hi], dtype=float))):
+        return "EXTRAPOLATED: OUTSIDE TRAINING RANGE"
+    if nsi_qc < lo:
+        return f"EXTRAPOLATED BELOW TRAINING RANGE [{lo:.3f}, {hi:.3f}]"
+    if nsi_qc > hi:
+        return f"EXTRAPOLATED ABOVE TRAINING RANGE [{lo:.3f}, {hi:.3f}]"
+    return "IN-RANGE"
+
+
 def conditional_reliability_from_nsi(
     qc_pfm: Dict[str, Any],
     reliability_model: Dict[str, Any],
@@ -308,25 +320,81 @@ def conditional_reliability_from_nsi(
                     float(np.interp(nsi_qc, x, p_hi)),
                 ]
 
+    tq_plot = float(t_query[-1])
+    plot_summary: Dict[str, Any] = {
+        "query_time_plotted": tq_plot,
+        "title": "",
+        "status_text": "",
+        "deterministic_point": {
+            "x": float(nsi_qc),
+            "y": float("nan"),
+            "query_time": tq_plot,
+            "label": f"Deterministic R^2 at {tq_plot:.0f} min",
+        },
+        "threshold_probability_points": [],
+        "legacy_threshold_probability_points": [],
+    }
+
+    tt_plot = int(np.argmin(np.abs(t_query - tq_plot)))
+    rhat_plot = float(out["deterministic"]["R_hat"][tt_plot])
+    plot_summary["deterministic_point"]["y"] = rhat_plot
+
+    if "query" in early_mdl and early_mdl["query"] is not None:
+        query_list = np.array([float(q["T_QUERY"]) for q in early_mdl["query"]])
+        it = int(np.argmin(np.abs(query_list - tq_plot)))
+        query_mdl = early_mdl["query"][it]
+
+        if "prob_models" in query_mdl and query_mdl["prob_models"] is not None:
+            for r0 in thresholds:
+                pm_list = [pm for pm in query_mdl["prob_models"] if float(pm["R_thresh"]) == float(r0)]
+                if not pm_list:
+                    continue
+                pm = pm_list[0]
+                g = pm["grid"]
+                x = np.asarray(g["NSI"]).reshape(-1)
+                p_med = np.asarray(g["P_med"]).reshape(-1)
+                legacy_y = float(np.interp(nsi_qc, x, p_med))
+                tag = f"R_ge_{r0:.2f}".replace(".", "p")
+                p_hat_curve = float(out["probabilistic"][tag]["P_hat"][tt_plot])
+                plot_summary["threshold_probability_points"].append(
+                    {
+                        "threshold": float(r0),
+                        "x": float(nsi_qc),
+                        "y": p_hat_curve,
+                        "query_time": float(query_mdl["T_QUERY"]),
+                        "label": f"P(R^2 >= {r0:.2f} at {float(query_mdl['T_QUERY']):.0f} min)",
+                    }
+                )
+                plot_summary["legacy_threshold_probability_points"].append(
+                    {
+                        "threshold": float(r0),
+                        "x": float(nsi_qc),
+                        "y": legacy_y,
+                        "query_time": float(query_mdl["T_QUERY"]),
+                        "label": f"Legacy plotted point on P(R^2 >= {r0:.2f}) curve",
+                    }
+                )
+
+    status_txt = _format_extrapolation_status(nsi_qc, flags["NSI_range"]) if flags["NSI_out_of_range"] else ""
+    plot_summary["status_text"] = status_txt
+    plot_summary["title"] = f"NSI={nsi_qc:.3f} | Deterministic R^2({tq_plot:.0f})={rhat_plot:.3f}"
+    out["plot"] = plot_summary
+
     if do_plot:
         if plt is None:
             raise RuntimeError("matplotlib is required for plotting.")
-        tq_plot = t_query[-1]
         if verbose and t_query.size > 1:
             print(f"Plotting probabilistic curves for QueryT={tq_plot} (last element of QueryT vector).")
 
         if "query" in early_mdl and early_mdl["query"] is not None:
-            query_list = np.array([float(q["T_QUERY"]) for q in early_mdl["query"]])
-            it = int(np.argmin(np.abs(query_list - tq_plot)))
-            query_mdl = early_mdl["query"][it]
-
             if "prob_models" in query_mdl and query_mdl["prob_models"] is not None:
-                fig_w, fig_h, fs = 5.3, 2.9, 10
+                fig_w, fig_h, fs = 5.6, 3.1, 10
                 cols = np.array([[0.75, 0.75, 0.75], [0.50, 0.50, 0.50], [0.20, 0.20, 0.20]])
                 line_styles = ["-", "--", "-."]
+                red = (0.70, 0.0, 0.0)
 
-                fig = plt.figure(figsize=(fig_w, fig_h), facecolor="white")
-                plt.axvline(nsi_qc, color=(0.75, 0.0, 0.0), linewidth=1.4)
+                fig, ax = plt.subplots(figsize=(fig_w, fig_h), facecolor="white", constrained_layout=True)
+                ax.axvline(nsi_qc, color=(0.75, 0.0, 0.0), linewidth=1.4)
 
                 for i, r0 in enumerate(list(thresholds)[:3]):
                     pm_list = [pm for pm in query_mdl["prob_models"] if float(pm["R_thresh"]) == float(r0)]
@@ -339,25 +407,67 @@ def conditional_reliability_from_nsi(
                     p_lo = np.asarray(g["P_lo"]).reshape(-1)
                     p_hi = np.asarray(g["P_hi"]).reshape(-1)
 
-                    plt.fill_between(x, p_lo, p_hi, color=cols[i], alpha=0.10)
-                    plt.plot(x, p_med, color=cols[i] * 0.6, linestyle=line_styles[i], linewidth=2.2)
-                    plt.scatter(nsi_qc, np.interp(nsi_qc, x, p_med), s=28, c="k", edgecolors="w", linewidths=0.8)
+                    ax.fill_between(x, p_lo, p_hi, color=cols[i], alpha=0.10)
+                    ax.plot(
+                        x,
+                        p_med,
+                        color=cols[i] * 0.6,
+                        linestyle=line_styles[i],
+                        linewidth=2.2,
+                        label=f"P(R^2 >= {r0:.2f})",
+                    )
 
-                plt.ylim(0, 1)
-                plt.box(False)
-                plt.gca().tick_params(direction="out")
-                plt.xlabel(f"NSI ({int(out['model']['EARLY_MIN_used'])} min)")
-                plt.ylabel(f"P(R^2 ≥ threshold at {int(query_mdl['T_QUERY'])} min)")
+                ax.set_ylim(0, 1)
+                ax.tick_params(direction="out", labelsize=fs - 1)
+                ax.set_xlabel(f"NSI ({int(out['model']['EARLY_MIN_used'])} min)")
+                ax.set_ylabel(f"P(R^2 >= threshold at {int(query_mdl['T_QUERY'])} min)")
+                ax.spines["top"].set_visible(False)
+                ax.spines["right"].set_visible(False)
 
-                tt_plot = int(np.argmin(np.abs(t_query - tq_plot)))
-                rhat_plot = out["deterministic"]["R_hat"][tt_plot]
-                status_txt = "IN-RANGE"
-                if flags["NSI_out_of_range"]:
-                    status_txt = "EXTRAPOLATED: OUTSIDE TRAINING RANGE"
-                plt.title(
-                    f"NSI={nsi_qc:.3f} | Deterministic R̂({tq_plot:.0f})={rhat_plot:.3f} [{status_txt}]",
-                    fontweight="normal",
+                ax_det = ax.twinx()
+                ax_det.set_ylim(0, 1)
+                ax_det.spines["top"].set_visible(False)
+                ax_det.spines["left"].set_visible(False)
+                ax_det.spines["right"].set_color(red)
+                ax_det.spines["right"].set_linewidth(0.9)
+                ax_det.tick_params(direction="out", colors=red, labelsize=fs - 1, pad=2, width=0.9, length=3.5)
+                ax_det.set_ylabel(
+                    f"Deterministic R^2 at {int(query_mdl['T_QUERY'])} min",
+                    color=red,
+                    fontsize=fs,
+                    labelpad=8,
                 )
+                ax_det.scatter(
+                    nsi_qc,
+                    rhat_plot,
+                    s=38,
+                    marker="D",
+                    c=[red],
+                    edgecolors="w",
+                    linewidths=0.8,
+                    zorder=5,
+                    label=f"Deterministic R^2({tq_plot:.0f})",
+                )
+
+                if flags["NSI_out_of_range"]:
+                    warn_txt = status_txt
+                    ax.text(
+                        0.02,
+                        0.97,
+                        warn_txt,
+                        transform=ax.transAxes,
+                        ha="left",
+                        va="top",
+                        fontsize=fs - 1,
+                        color=red,
+                        bbox={"boxstyle": "round,pad=0.22", "fc": (1.0, 0.96, 0.96), "ec": (0.82, 0.82, 0.82)},
+                    )
+
+                handles, labels = ax.get_legend_handles_labels()
+                handles_det, labels_det = ax_det.get_legend_handles_labels()
+                ax.legend(handles + handles_det, labels + labels_det, loc="lower right", frameon=False, fontsize=8)
+
+                ax.set_title(plot_summary["title"], fontweight="normal", fontsize=fs + 0.5, pad=6)
                 if save_dir:
                     fig.savefig(f"{save_dir}/{prefix}_reliability_prob.png", dpi=dpi, bbox_inches="tight")
 

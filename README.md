@@ -153,4 +153,3 @@ Preprint: https://www.biorxiv.org/content/10.64898/2026.02.10.704857v1
 
 MIT
 
-Reliability note: when NSI is outside the model training range, outputs/plot titles are explicitly flagged as extrapolated outside training range.

@@ -1,0 +1,32 @@
+{
+  "title": "PFM-NSI: Network Similarity Index software for quality assessment of individual-level functional connectivity MRI",
+  "version": "0.1.0",
+  "upload_type": "software",
+  "access_right": "open",
+  "license": "mit",
+  "language": "eng",
+  "creators": [
+    {
+      "name": "Lynch, Charles J.",
+      "affiliation": "Weill Cornell Medicine"
+    }
+  ],
+  "description": "PFM-NSI provides Python and MATLAB implementations of the Network Similarity Index, an objective quality-control metric for evaluating whether individual-level functional connectivity MRI datasets express recoverable large-scale network structure suitable for precision functional mapping and related analyses.",
+  "keywords": [
+    "precision functional mapping",
+    "functional MRI",
+    "functional connectivity",
+    "quality control",
+    "network similarity index",
+    "neuroimaging",
+    "PFM",
+    "NSI"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://doi.org/10.64898/2026.02.10.704857",
+      "relation": "isDocumentedBy",
+      "resource_type": "publication-preprint"
+    }
+  ]
+}

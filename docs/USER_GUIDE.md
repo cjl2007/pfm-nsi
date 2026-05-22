@@ -157,7 +157,7 @@ opts["BinaryROI"] = "/path/to/roi_mask.dscalar.nii"
 opts["SparseIdxOverrideBypassStructures"] = True
 ```
 
-## 4) MATLAB Fallback
+## 4) MATLAB Reference Implementation
 
 ```matlab
 addpath('/path/to/pfm-nsi/matlab/scripts');

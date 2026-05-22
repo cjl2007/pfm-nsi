@@ -5,7 +5,7 @@ Precision Functional Mapping - Network Similarity Index (PFM-NSI).
 This repository ships two aligned implementations:
 
 - Python package + CLI (`pfm_nsi`, `pfm-nsi` command)
-- MATLAB fallback (`matlab/scripts/*.m`)
+- MATLAB reference implementation (`matlab/scripts/*.m`)
 
 Both implementations compute the same core outputs:
 
@@ -97,7 +97,7 @@ Sparse target guidance:
   - `T > 2000`: `--sparse-frac 0.10`
 - `--roi-binary` bypasses sparse subsampling.
 
-## MATLAB Fallback
+## MATLAB Reference Implementation
 
 See [matlab/README.md](matlab/README.md) for setup and examples.
 

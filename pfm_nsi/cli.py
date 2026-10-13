@@ -119,12 +119,18 @@ def _save_npz(outdir: str, prefix: str, qc: dict) -> str:
 
 
 def _save_nsi_summary_json(outdir: str, prefix: str, qc: dict) -> str:
-    r2 = np.asarray(qc["NSI"]["Ridge"]["Lambda10"]["R2"], dtype=float).ravel()
+    ridge = qc["NSI"]["Ridge"]["Lambda10"]
+    r2 = np.asarray(ridge["R2"], dtype=float).ravel()
+    raw_diag = ridge.get("RawR2Diagnostics", {})
     summary = {
         "median_nsi": float(qc["NSI"]["MedianScore"]),
         "n_targets": int(r2.size),
         "mean_nsi": float(np.nanmean(r2)) if r2.size else float("nan"),
         "lambda": 10,
+        "raw_r2_negative_count": int(raw_diag.get("negative_count", 0)),
+        "raw_r2_negative_fraction": float(raw_diag.get("negative_fraction", 0.0)),
+        "raw_r2_nonfinite_count": int(raw_diag.get("nonfinite_count", 0)),
+        "raw_r2_min": float(raw_diag.get("raw_min", float("nan"))),
     }
     path = os.path.join(outdir, f"{prefix}_nsi_summary.json")
     with open(path, "w", encoding="utf-8") as f:
@@ -206,8 +212,7 @@ def _build_opts(args: argparse.Namespace) -> Dict[str, Any]:
         "ridge_lambdas": ridge_lambdas,
         "lowmem": lowmem,
         "use_float32": str(getattr(args, "dtype", "float32")).lower() == "float32",
-        "block_size": int(getattr(args, "block_size", 2048)),
-        "keep_allrho": bool(getattr(args, "keep_allrho", False)),
+        "block_size": int(getattr(args, "block_size", 512)),
         "keep_betas": bool(getattr(args, "keep_betas", False)),
         "keep_fc_map": bool(getattr(args, "keep_fc_map", False)),
         "compute_network_histograms": bool(getattr(args, "network_hists", False)),
@@ -695,8 +700,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_perf.add_argument("--slope", action="store_true", help="Advanced: compute spectral slope")
     run_perf.add_argument("--fullmem", action="store_true", help="Disable low-memory mode")
     run_perf.add_argument("--dtype", choices=["float32", "float64"], default="float32", help="Computation dtype (default: float32)")
-    run_perf.add_argument("--block-size", type=int, default=2048, help="Target block size for sparse-target processing")
-    run_perf.add_argument("--keep-allrho", action="store_true", help="Retain full univariate rho matrix in outputs")
+    run_perf.add_argument("--block-size", type=int, default=512, help="Target block size for sparse-target processing")
+    run_perf.add_argument("--keep-allrho", action="store_true", help="Deprecated no-op (univariate NSI removed)")
     run_perf.add_argument("--keep-betas", action="store_true", help="Retain ridge beta maps in outputs")
     run_perf.add_argument("--keep-fc-map", action="store_true", help="Retain FC map output in memory/output object")
     run_perf.add_argument("--slope-kmax", type=int, default=None, help="Advanced slope option: kmax")
@@ -858,8 +863,8 @@ def build_parser() -> argparse.ArgumentParser:
     batch_perf.add_argument("--slope", action="store_true", help="CIFTI mode only: compute spectral slope")
     batch_perf.add_argument("--fullmem", action="store_true", help="Disable low-memory mode")
     batch_perf.add_argument("--dtype", choices=["float32", "float64"], default="float32", help="Computation dtype (default: float32)")
-    batch_perf.add_argument("--block-size", type=int, default=2048, help="Target block size for sparse-target processing")
-    batch_perf.add_argument("--keep-allrho", action="store_true", help="Retain full univariate rho matrix in outputs")
+    batch_perf.add_argument("--block-size", type=int, default=512, help="Target block size for sparse-target processing")
+    batch_perf.add_argument("--keep-allrho", action="store_true", help="Deprecated no-op (univariate NSI removed)")
     batch_perf.add_argument("--keep-betas", action="store_true", help="Retain ridge beta maps in outputs")
     batch_perf.add_argument("--keep-fc-map", action="store_true", help="Retain FC map output in memory/output object")
     batch_perf.add_argument("--slope-kmax", type=int, default=None, help="Advanced slope option: kmax")

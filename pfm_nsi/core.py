@@ -536,6 +536,10 @@ def pfm_nsi(
     lam_list = [float(l) for l in ridge_lambdas]
     lam_tags = {lam: f"Lambda{lam:g}" for lam in lam_list}
     r2_by_lam = {lam: np.full((n_targets,), np.nan, dtype=np.float64) for lam in lam_list}
+    raw_r2_diag_by_lam = {
+        lam: {"n": 0, "negative": 0, "nonfinite": 0, "min": np.inf}
+        for lam in lam_list
+    }
     betas_by_lam = {}
     target_network_tag = f"Lambda{float(network_assignment_lambda):g}"
     network_idx = None
@@ -583,6 +587,15 @@ def pfm_nsi(
             SSE = np.sum((FCb - Yhat) ** 2, axis=0)
             SST = np.sum((FCb - np.mean(FCb, axis=0, keepdims=True)) ** 2, axis=0)
             R2 = 1 - SSE / np.maximum(SST, eps)
+            finite = np.isfinite(R2)
+            raw_r2_diag_by_lam[lam]["n"] += int(R2.size)
+            raw_r2_diag_by_lam[lam]["negative"] += int(np.sum(finite & (R2 < 0)))
+            raw_r2_diag_by_lam[lam]["nonfinite"] += int(np.sum(~finite))
+            if np.any(finite):
+                raw_r2_diag_by_lam[lam]["min"] = min(
+                    raw_r2_diag_by_lam[lam]["min"],
+                    float(np.min(R2[finite])),
+                )
             R2[R2 < 0] = np.nan
             r2_by_lam[lam][b0:b1] = R2
             if compute_network_histograms and lam_tags[lam] == target_network_tag:
@@ -598,7 +611,19 @@ def pfm_nsi(
 
     for lam in lam_list:
         tag = lam_tags[lam]
-        ridge_entry: Dict[str, Any] = {"R2": r2_by_lam[lam]}
+        diag = raw_r2_diag_by_lam[lam]
+        n_raw = int(diag["n"])
+        raw_min = float(diag["min"]) if np.isfinite(diag["min"]) else float("nan")
+        ridge_entry: Dict[str, Any] = {
+            "R2": r2_by_lam[lam],
+            "RawR2Diagnostics": {
+                "n_targets": n_raw,
+                "negative_count": int(diag["negative"]),
+                "negative_fraction": float(diag["negative"] / n_raw) if n_raw else float("nan"),
+                "nonfinite_count": int(diag["nonfinite"]),
+                "raw_min": raw_min,
+            },
+        }
         if keep_betas:
             ridge_entry["Betas"] = betas_by_lam[lam]
         Output["NSI"]["Ridge"][tag] = ridge_entry
